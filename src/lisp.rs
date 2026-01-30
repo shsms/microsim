@@ -96,6 +96,7 @@ intern! {
 #[derive(Clone)]
 pub struct Config {
     filename: String,
+    config_dir: String,
 
     pub(crate) ctx: Rc<RefCell<tulisp::TulispContext>>,
 
@@ -260,14 +261,40 @@ impl Config {
         let mut ctx = tulisp::TulispContext::new();
         add_functions(&mut ctx);
 
-        let _ = ctx.eval_file(filename).map_err(|e| {
+        // Get the directory of the config file
+        let config_path = Path::new(filename);
+        let config_dir = config_path
+            .parent()
+            .and_then(|p| p.to_str())
+            .unwrap_or(".")
+            .to_string();
+
+        // Change to config directory before loading to ensure relative paths work
+        let original_dir = std::env::current_dir().unwrap();
+        if let Some(parent) = config_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::env::set_current_dir(parent);
+            }
+        }
+
+        let config_filename = config_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(filename);
+
+        let _ = ctx.eval_file(config_filename).map_err(|e| {
             log::error!("Tulisp error:\n{}", e.format(&ctx));
             e
         });
+
+        // Restore original directory
+        let _ = std::env::set_current_dir(original_dir);
+
         let now = std::time::Instant::now();
         let symbols = Symbols::new(&mut ctx);
         Self {
             filename: filename.to_string(),
+            config_dir,
             ctx: Rc::new(RefCell::new(ctx)),
             stream_methods: Rc::new(RefCell::new(HashMap::new())),
             last_formula_update_time: Rc::new(RefCell::new(now)),
@@ -279,16 +306,35 @@ impl Config {
     pub fn reload(&self) {
         let start = std::time::Instant::now();
         let mut ctx = self.ctx.borrow_mut();
+
+        // Change to config directory before reloading
+        let original_dir = std::env::current_dir().unwrap();
+        if !self.config_dir.is_empty() && self.config_dir != "." {
+            let _ = std::env::set_current_dir(&self.config_dir);
+        }
+
+        let config_path = Path::new(&self.filename);
+        let config_filename = config_path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(&self.filename);
+
         if ctx
-            .eval_file(&self.filename)
+            .eval_file(config_filename)
             .map_err(|e| {
                 log::error!("Tulisp error:\n{}", e.format(&ctx));
                 e
             })
             .is_err()
         {
+            // Restore original directory even on error
+            let _ = std::env::set_current_dir(original_dir);
             return;
         }
+
+        // Restore original directory
+        let _ = std::env::set_current_dir(original_dir);
+
         let duration = start.elapsed();
         log::info!(
             "Reloaded config file in {}ms",
