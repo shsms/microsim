@@ -258,6 +258,16 @@ fn make_component_from_alist(
 impl Config {
     pub fn new(filename: &str) -> Self {
         let mut ctx = tulisp::TulispContext::new();
+
+        let config_path = Path::new(filename);
+        log::debug!("Using config path: {}", config_path.display());
+
+        if let Some(p) = config_path.parent() {
+            log::debug!("Using load path: {}", p.display());
+            ctx.set_load_path(Some(p))
+                .unwrap_or_else(|e| panic!("set_load_path({}): {:?}", p.display(), e));
+        }
+
         add_functions(&mut ctx);
 
         let _ = ctx.eval_file(filename).map_err(|e| {

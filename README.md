@@ -27,3 +27,13 @@ configuration of the microgrid.
 Initialize the submodules, then run `cargo run --release` to start the
 simulator.  The `config.lisp` can be modified at runtime, to make
 changes to the components.
+
+If you have different configurations or configuration is under different
+name, you can still run the binary by passing the config path as a
+parameter, as long as the config files are in the same directory as the
+`sim` directory.
+
+
+ ```sh
+ cargo run --release -- <path-to-the-config>
+ ```
