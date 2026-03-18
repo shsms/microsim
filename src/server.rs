@@ -6,6 +6,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::lisp::Config;
 
+use crate::proto::common::v1alpha8::metrics::Metric;
 use crate::proto::microgrid::v1alpha18::{
     AckElectricalComponentErrorRequest, AugmentElectricalComponentBoundsRequest,
     AugmentElectricalComponentBoundsResponse, GetMicrogridResponse,
@@ -208,6 +209,41 @@ impl microgrid_server::Microgrid for MicrogridServer {
         ))
     }
 
+    async fn augment_electrical_component_bounds(
+        &self,
+        request: tonic::Request<AugmentElectricalComponentBoundsRequest>,
+    ) -> std::result::Result<tonic::Response<AugmentElectricalComponentBoundsResponse>, tonic::Status>
+    {
+        let request = request.into_inner();
+        let component_id = request.electrical_component_id;
+        let Ok(target_metric) = Metric::try_from(request.target_metric) else {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Invalid metric type: {}",
+                request.target_metric
+            )));
+        };
+
+        if target_metric != Metric::AcPowerActive {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Unsupported metric type: {}. Only AC_POWER_ACTIVE is supported.",
+                request.target_metric
+            )));
+        }
+
+        self.config
+            .augment_active_power_bounds(component_id, request.bounds)
+            .map_err(|e| {
+                log::error!("Tulisp error:\n{}", e.format(&self.config.ctx.borrow()));
+                tonic::Status::failed_precondition(e.desc())
+            })?;
+
+        Ok(tonic::Response::new(
+            AugmentElectricalComponentBoundsResponse {
+                valid_until_time: None,
+            },
+        ))
+    }
+
     //
     //
     // Unused methods
@@ -223,13 +259,6 @@ impl microgrid_server::Microgrid for MicrogridServer {
         &self,
         _request: tonic::Request<ReceiveSensorTelemetryStreamRequest>,
     ) -> std::result::Result<tonic::Response<Self::ReceiveSensorTelemetryStreamStream>, tonic::Status>
-    {
-        todo!()
-    }
-    async fn augment_electrical_component_bounds(
-        &self,
-        _request: tonic::Request<AugmentElectricalComponentBoundsRequest>,
-    ) -> std::result::Result<tonic::Response<AugmentElectricalComponentBoundsResponse>, tonic::Status>
     {
         todo!()
     }

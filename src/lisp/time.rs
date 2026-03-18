@@ -1,9 +1,9 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 
 use tulisp::{Error, Shared, TulispContext, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("dt:now", || TulispDateTime::from(chrono::Utc::now()));
+    ctx.add_function("dt:now", || TulispDateTime::now());
     ctx.add_function("dt:minutes", |minutes: i64| {
         TulispTimeDelta::from(chrono::Duration::minutes(minutes))
     });
@@ -69,7 +69,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
 }
 
 #[derive(Debug, Clone)]
-struct TulispDateTime(chrono::DateTime<chrono::Utc>);
+pub(crate) struct TulispDateTime(chrono::DateTime<chrono::Utc>);
 
 impl Display for TulispDateTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -89,6 +89,14 @@ impl From<TulispDateTime> for TulispObject {
     }
 }
 
+impl Deref for TulispDateTime {
+    type Target = chrono::DateTime<chrono::Utc>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl TryFrom<TulispObject> for TulispDateTime {
     type Error = Error;
 
@@ -103,8 +111,14 @@ impl TryFrom<TulispObject> for TulispDateTime {
     }
 }
 
+impl TulispDateTime {
+    pub fn now() -> Self {
+        TulispDateTime(chrono::Utc::now())
+    }
+}
+
 #[derive(Debug, Clone)]
-struct TulispTimeDelta(chrono::TimeDelta);
+pub(crate) struct TulispTimeDelta(chrono::TimeDelta);
 
 impl Display for TulispTimeDelta {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

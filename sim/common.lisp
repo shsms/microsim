@@ -16,6 +16,10 @@
   (intern (format "component-reactive-power-%s" id)))
 
 
+(defun active-power-bounds-symbol-from-id (id)
+  (intern (format "component-active-power-bounds-%s" id)))
+
+
 (defun power-symbol-from-id (id)
   (intern (format "component-power-%s" id)))
 
@@ -195,6 +199,11 @@
         (funcall reset-power-func)
       (log.warn "No reset power function found for component id %d" id))))
 
+
+(defun augment-active-power-bounds (id create-ts bounds)
+  (let* ((active-power-bounds-symbol (active-power-bounds-symbol-from-id id)))
+    (set active-power-bounds-symbol
+         (bounds/add (eval active-power-bounds-symbol) create-ts bounds))))
 
 (defun component-data-maker (data-alist defaults-alist keys)
   (let ((data-alist (eval data-alist))

@@ -1,3 +1,4 @@
+mod bounds;
 mod time;
 
 use rand::Rng;
@@ -10,29 +11,33 @@ use std::{
     time::Duration,
 };
 
-use crate::proto::{
-    common::v1alpha8::{
-        grid::{DeliveryArea, EnergyMarketCodeType},
-        metrics::{
-            Bounds, Metric, MetricSample, MetricValueVariant, SimpleMetricValue,
-            metric_value_variant,
-        },
-        microgrid::{
-            MicrogridStatus,
-            electrical_components::{
-                Battery, BatteryType, ElectricalComponent, ElectricalComponentCategory,
-                ElectricalComponentCategorySpecificInfo, ElectricalComponentConnection,
-                ElectricalComponentStateCode, ElectricalComponentStateSnapshot,
-                ElectricalComponentTelemetry, EvCharger, EvChargerType, GridConnectionPoint,
-                Inverter, InverterType, MetricConfigBounds,
-                electrical_component_category_specific_info::Kind,
+use crate::{
+    lisp::bounds::VecBounds,
+    lisp::time::TulispDateTime,
+    proto::{
+        common::v1alpha8::{
+            grid::{DeliveryArea, EnergyMarketCodeType},
+            metrics::{
+                Bounds, Metric, MetricSample, MetricValueVariant, SimpleMetricValue,
+                metric_value_variant,
+            },
+            microgrid::{
+                MicrogridStatus,
+                electrical_components::{
+                    Battery, BatteryType, ElectricalComponent, ElectricalComponentCategory,
+                    ElectricalComponentCategorySpecificInfo, ElectricalComponentConnection,
+                    ElectricalComponentStateCode, ElectricalComponentStateSnapshot,
+                    ElectricalComponentTelemetry, EvCharger, EvChargerType, GridConnectionPoint,
+                    Inverter, InverterType, MetricConfigBounds,
+                    electrical_component_category_specific_info::Kind,
+                },
             },
         },
-    },
-    microgrid::v1alpha18::{
-        GetMicrogridResponse, ListElectricalComponentConnectionsRequest,
-        ListElectricalComponentConnectionsResponse, ListElectricalComponentsRequest,
-        ListElectricalComponentsResponse, ReceiveElectricalComponentTelemetryStreamResponse,
+        microgrid::v1alpha18::{
+            GetMicrogridResponse, ListElectricalComponentConnectionsRequest,
+            ListElectricalComponentConnectionsResponse, ListElectricalComponentsRequest,
+            ListElectricalComponentsResponse, ReceiveElectricalComponentTelemetryStreamResponse,
+        },
     },
 };
 use notify::{RecommendedWatcher, Watcher};
@@ -89,6 +94,7 @@ intern! {
         reset_power_active: "reset-power-active",
         state_update_functions: "state-update-functions",
         per_phase_reactive_power: "per-phase-reactive-power",
+        augment_active_power_bounds: "augment-active-power-bounds",
         retain_requests_duration_ms: "retain-requests-duration-ms",
     }
 }
@@ -603,6 +609,34 @@ Invalid socket-addr.  Add a config line in this format:
         }
         work(self, component_id)
             .inspect_err(|e| log::error!("Tulisp error:\n{}", e.format(&self.ctx.borrow())))
+    }
+
+    pub fn augment_active_power_bounds(
+        &self,
+        component_id: u64,
+        bounds: Vec<Bounds>,
+    ) -> Result<(), Error> {
+        if bounds.is_empty() {
+            return Ok(());
+        }
+
+        if bounds.len() > 1 {
+            return Err(Error::invalid_argument(format!(
+                "Only one phase is supported for bounds augmentation, but got {}",
+                bounds.len()
+            )));
+        }
+
+        self.ctx.borrow_mut().funcall(
+            &self.symbols.augment_active_power_bounds,
+            &list![
+                ,(component_id as i64).into()
+                ,TulispDateTime::now().into()
+                ,VecBounds::new(bounds).into()
+            ]?,
+        )?;
+
+        Ok(())
     }
 
     fn get_conv_function(&self, component_id: u64, comp: &TulispObject) -> CompDataMaker {
@@ -1162,4 +1196,5 @@ fn add_functions(ctx: &mut TulispContext) {
         });
 
     crate::lisp::time::add(ctx);
+    crate::lisp::bounds::add(ctx);
 }

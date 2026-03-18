@@ -173,6 +173,7 @@
                         (inclusion-upper . ,rated-upper)))
          (bounds-check-func-symbol (bounds-check-func-symbol-from-id id))
          (reactive-bounds-check-func-symbol (reactive-bounds-check-func-symbol-from-id id))
+         (active-power-bounds-symbol (active-power-bounds-symbol-from-id id))
          (set-power-func-symbol (set-power-func-symbol-from-id id))
          (set-reactive-power-func-symbol (set-reactive-power-func-symbol-from-id id))
          (reset-power-func-symbol (reset-power-func-symbol-from-id id))
@@ -213,6 +214,7 @@
              (eval (list 'lambda '(power)
                          `(and
                            (,(make-battery-bounds-check-expr successors) power)
+                           (bounds/contains ,active-power-bounds-symbol power)
                            (<= ,rated-lower
                                power
                                ,rated-upper))))
@@ -246,9 +248,9 @@
                             )
                          expr)))
            (if (> num-batteries 0)
-               `(lambda (power)
-                  ,@expr)
-               '(lambda (power)
+               (eval `(lambda (power)
+                        ,@expr))
+               (lambda (power)
                   (log.error "Can't set power: no healthy batteries")
                   nil))))
 
@@ -264,6 +266,22 @@
              (lambda (reactive-power)
                (log.error "Can't set reactive power: inverter is unhealthy")
                nil)))
+
+    (set active-power-bounds-symbol (bounds/make-container))
+
+    (when is-healthy
+      (every
+       :milliseconds 1000
+       :call `(lambda ()
+                (let ((measured-power ,(alist-get 'power power-expr))
+                      (active-power-bounds ,active-power-bounds-symbol))
+                  (set active-power-bounds-symbol
+                       (bounds/drop-expired active-power-bounds))
+                  (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
+                    (unless (equal limited-power measured-power)
+                      (log.debug (format "Limited power for inverter %s: %s W"
+                                         ,id limited-power))
+                      (,set-power-func-symbol limited-power)))))))
 
     (add-to-components-alist inverter)
     (connect-successors id successors)
@@ -281,6 +299,7 @@
          (power-symbol  (power-symbol-from-id id))
          (reactive-power-symbol (reactive-power-symbol-from-id id))
          (min-power-symbol (power-symbol-from-id (format "min-%s" id)))
+         (active-power-bounds-symbol (active-power-bounds-symbol-from-id id))
 
          (rated-bounds (or (alist-get 'rated-bounds config-alist) '(0.0 0.0)))
          (rated-lower (car rated-bounds))
@@ -336,7 +355,9 @@
     (set bounds-check-func-symbol
          (if is-healthy
              (list 'lambda '(power)
-                   `(<= ,rated-lower power ,rated-upper))
+                   `(and
+                     (bounds/contains ,active-power-bounds-symbol power)
+                     (<= ,rated-lower power ,rated-upper)))
              (list 'lambda '(power)
                    (log.error "inverter is unhealthy")
                    nil)))
@@ -357,35 +378,51 @@
 
     (set set-power-func-symbol
          (if is-healthy
-             `(lambda (power)
-                (let ((min-power ,(* rated-lower (/ sunlight% 100.0))))
-                  (setq ,min-power-symbol (max power min-power))
-                  (if (< power min-power)
-                      (progn
-                        (log.info
-                         (format "Given power %s W is not available for inverter %s.  Limiting to %s W."
-                                 power ,id min-power))
-                        (setq ,power-symbol min-power))
-                      (log.info (format "Setting power of inverter %s to %s W (was: %s W)"
-                                        ,id
-                                        power
-                                        ,(power-symbol-from-id id)))
-                      (setq ,power-symbol power))))
-           '(lambda (power)
-             (log.error "Can't set power: inverter is unhealthy")
-             nil)))
+             (eval `(lambda (power)
+                      (let ((min-power ,(* rated-lower (/ sunlight% 100.0))))
+                        (setq ,min-power-symbol (max power min-power))
+                        (if (< power min-power)
+                            (progn
+                              (log.info
+                               (format "Given power %s W is not available for inverter %s.  Limiting to %s W."
+                                       power ,id min-power))
+                              (setq ,power-symbol min-power))
+                            (log.info (format "Setting power of inverter %s to %s W (was: %s W)"
+                                              ,id
+                                              power
+                                              ,(power-symbol-from-id id)))
+                            (setq ,power-symbol power)))))
+             (lambda (power)
+               (log.error "Can't set power: inverter is unhealthy")
+               nil)))
 
     (set set-reactive-power-func-symbol
          (if is-healthy
-             `(lambda (reactive-power)
-                (log.info (format "Setting reactive power of inverter %s to %s VAR (was: %s VAR)"
-                                  ,id
-                                  reactive-power
-                                  ,reactive-power-symbol))
-                (setq ,reactive-power-symbol reactive-power))
-             '(lambda (reactive-power)
+             (eval `(lambda (reactive-power)
+                      (log.info (format "Setting reactive power of inverter %s to %s VAR (was: %s VAR)"
+                                        ,id
+                                        reactive-power
+                                        ,reactive-power-symbol))
+                      (setq ,reactive-power-symbol reactive-power)))
+             (lambda (reactive-power)
                (log.error "Can't set reactive power: inverter is unhealthy")
                nil)))
+
+    (set active-power-bounds-symbol (bounds/make-container))
+
+    (when is-healthy
+      (every
+       :milliseconds 1000
+       :call `(lambda ()
+                (let ((measured-power ,(alist-get 'power power-expr))
+                      (active-power-bounds ,active-power-bounds-symbol))
+                  (set active-power-bounds-symbol
+                       (bounds/drop-expired active-power-bounds))
+                  (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
+                    (unless (equal limited-power measured-power)
+                      (log.debug (format "Limited power for inverter %s: %s W"
+                                         ,id limited-power))
+                      (,set-power-func-symbol limited-power)))))))
 
     (add-to-components-alist inverter)
     inverter))

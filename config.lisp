@@ -65,7 +65,7 @@
 
 ;; Component defaults.  All these defaults can be overridden
 ;; separately for individual components, if necessary.
-(setq battery-defaults '((initial-soc      . 90.0)
+(setq battery-defaults '((initial-soc      . 50.0)
                          (soc-lower        . 10.0)
                          (soc-upper        . 90.0)
                          (capacity         . 92000.0)
