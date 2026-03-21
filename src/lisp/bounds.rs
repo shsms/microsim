@@ -14,7 +14,15 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         },
     );
 
-    ctx.add_function("bounds/make-container", || TulispComponentBounds::new());
+    ctx.add_function(
+        "bounds/make-container",
+        |rated_lower: f64, rated_upper: f64| {
+            TulispComponentBounds::new(VecBounds::new(vec![Bounds {
+                lower: Some(rated_lower as f32),
+                upper: Some(rated_upper as f32),
+            }]))
+        },
+    );
 
     ctx.add_function(
         "bounds/drop-expired",
@@ -34,15 +42,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
     ctx.add_function(
         "bounds/contains",
         |bounds: TulispComponentBounds, value: f64| -> bool {
-            if bounds.augmented.is_empty() {
-                return true;
-            }
-            bounds
-                .squash()
-                .0
-                .iter()
-                .find(|b| b.contains(value as f32))
-                .is_some()
+            bounds.squash().contains(value as f32)
         },
     );
 
@@ -56,6 +56,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TulispComponentBounds {
+    pub(crate) rated_bounds: VecBounds,
     pub(crate) augmented: VecDeque<(TulispDateTime, VecBounds)>,
 }
 
@@ -86,19 +87,17 @@ impl TryFrom<TulispObject> for TulispComponentBounds {
 }
 
 impl TulispComponentBounds {
-    pub fn new() -> Self {
+    pub fn new(rated_bounds: VecBounds) -> Self {
         TulispComponentBounds {
+            rated_bounds,
             augmented: VecDeque::new(),
         }
     }
 
     pub fn squash(&self) -> VecBounds {
-        let mut iter = self.augmented.iter().map(|(_, bounds)| bounds);
+        let mut bounds = self.rated_bounds.clone();
 
-        let Some(mut bounds) = iter.next().map(|x| x.to_owned()) else {
-            return VecBounds(vec![]);
-        };
-        for b in iter {
+        for (_, b) in self.augmented.iter() {
             bounds = bounds.intersect(b);
         }
         return bounds;
@@ -144,6 +143,10 @@ impl VecBounds {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         VecBounds(bounds)
+    }
+
+    pub fn contains(&self, value: f32) -> bool {
+        self.0.iter().any(|b| b.contains(value))
     }
 
     pub fn intersect(&self, other: &Self) -> Self {

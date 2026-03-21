@@ -214,10 +214,7 @@
              (eval (list 'lambda '(power)
                          `(and
                            (,(make-battery-bounds-check-expr successors) power)
-                           (bounds/contains ,active-power-bounds-symbol power)
-                           (<= ,rated-lower
-                               power
-                               ,rated-upper))))
+                           (bounds/contains ,active-power-bounds-symbol power))))
              (eval (list 'lambda '(power)
                          (log.error "inverter is unhealthy")
                          nil))))
@@ -267,7 +264,7 @@
                (log.error "Can't set reactive power: inverter is unhealthy")
                nil)))
 
-    (set active-power-bounds-symbol (bounds/make-container))
+    (set active-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
 
     (when is-healthy
       (every
@@ -355,9 +352,7 @@
     (set bounds-check-func-symbol
          (if is-healthy
              (list 'lambda '(power)
-                   `(and
-                     (bounds/contains ,active-power-bounds-symbol power)
-                     (<= ,rated-lower power ,rated-upper)))
+                   `(bounds/contains ,active-power-bounds-symbol power))
              (list 'lambda '(power)
                    (log.error "inverter is unhealthy")
                    nil)))
@@ -408,7 +403,7 @@
                (log.error "Can't set reactive power: inverter is unhealthy")
                nil)))
 
-    (set active-power-bounds-symbol (bounds/make-container))
+    (set active-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
 
     (when is-healthy
       (every
