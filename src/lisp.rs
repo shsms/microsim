@@ -80,6 +80,8 @@ intern! {
         set_power_reactive: "set-power-reactive",
         enterprise_id: "enterprise-id",
         microgrid_id: "microgrid-id",
+        rated_lower: "rated-lower",
+        rated_upper: "rated-upper",
         delivery_area: "delivery-area",
         inclusion_lower: "inclusion-lower",
         inclusion_upper: "inclusion-upper",
@@ -224,11 +226,11 @@ fn make_component_from_alist(
         _ => None,
     };
 
-    let inclusion_lower = alist_get_f32!(ctx, &alist, &symbols.inclusion_lower);
-    let inclusion_upper = alist_get_f32!(ctx, &alist, &symbols.inclusion_upper);
+    let rated_lower = alist_get_f32!(ctx, &alist, &symbols.rated_lower);
+    let rated_upper = alist_get_f32!(ctx, &alist, &symbols.rated_upper);
 
     // Copy active bounds to reactive bounds.
-    let reactive_upper = inclusion_lower.abs().max(inclusion_upper.abs());
+    let reactive_upper = rated_lower.abs().max(rated_upper.abs());
     let reactive_lower = -reactive_upper;
 
     let comp = ElectricalComponent {
@@ -239,22 +241,32 @@ fn make_component_from_alist(
         category_specific_info: Some(ElectricalComponentCategorySpecificInfo { kind }),
         // status: todo!(),  // TODO: Add status
         // operational_lifetime: todo!(),
-        metric_config_bounds: vec![
-            MetricConfigBounds {
-                metric: Metric::AcPowerActive as i32,
+        metric_config_bounds: if category == ElectricalComponentCategory::Battery {
+            vec![MetricConfigBounds {
+                metric: Metric::DcPower as i32,
                 config_bounds: Some(Bounds {
-                    lower: Some(inclusion_lower),
-                    upper: Some(inclusion_upper),
+                    lower: Some(rated_lower),
+                    upper: Some(rated_upper),
                 }),
-            },
-            MetricConfigBounds {
-                metric: Metric::AcPowerReactive as i32,
-                config_bounds: Some(Bounds {
-                    lower: Some(reactive_lower),
-                    upper: Some(reactive_upper),
-                }),
-            },
-        ],
+            }]
+        } else {
+            vec![
+                MetricConfigBounds {
+                    metric: Metric::AcPowerActive as i32,
+                    config_bounds: Some(Bounds {
+                        lower: Some(rated_lower),
+                        upper: Some(rated_upper),
+                    }),
+                },
+                MetricConfigBounds {
+                    metric: Metric::AcPowerReactive as i32,
+                    config_bounds: Some(Bounds {
+                        lower: Some(reactive_lower),
+                        upper: Some(reactive_upper),
+                    }),
+                },
+            ]
+        },
         ..Default::default()
     };
 
