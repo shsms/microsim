@@ -1,6 +1,7 @@
 mod bounds;
 mod time;
 
+use crate::lisp::bounds::TulispComponentBounds;
 use rand::Rng;
 use std::{
     cell::{Cell, RefCell},
@@ -63,6 +64,7 @@ intern! {
         type_: "type",
         status: "status",
         stream: "stream",
+        bounds: "bounds",
         voltage: "voltage",
         current: "current",
         category: "category",
@@ -885,10 +887,9 @@ impl Config {
             alist_get_3_phase!(ctx, &alist, &symbols.per_phase_reactive_power);
         let reactive_power = alist_get_f32!(ctx, &alist, &symbols.reactive_power);
 
-        let inclusion_lower = alist_get_f32!(ctx, &alist, &symbols.inclusion_lower);
-        let inclusion_upper = alist_get_f32!(ctx, &alist, &symbols.inclusion_upper);
-        let exclusion_lower = alist_get_f32!(ctx, &alist, &symbols.exclusion_lower);
-        let exclusion_upper = alist_get_f32!(ctx, &alist, &symbols.exclusion_upper);
+        let bounds: TulispComponentBounds = alist_get_as!(ctx, &alist, &symbols.bounds)
+            .and_then(|x| ctx.eval(&x))?
+            .try_into()?;
 
         Ok(vec![
             MetricSample {
@@ -1069,23 +1070,7 @@ impl Config {
                         }),
                     ),
                 }),
-                bounds: if exclusion_lower == 0.0 && exclusion_upper == 0.0 {
-                    vec![Bounds {
-                        lower: Some(inclusion_lower),
-                        upper: Some(inclusion_upper),
-                    }]
-                } else {
-                    vec![
-                        Bounds {
-                            lower: Some(inclusion_lower),
-                            upper: Some(exclusion_lower),
-                        },
-                        Bounds {
-                            lower: Some(exclusion_upper),
-                            upper: Some(inclusion_upper),
-                        },
-                    ]
-                },
+                bounds: bounds.squash().0,
                 ..Default::default()
             },
         ])

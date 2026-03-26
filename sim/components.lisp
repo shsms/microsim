@@ -133,8 +133,7 @@
   (component-data-maker data-alist
                         defaults-alist
                         '(id power current voltage component-state reactive-power
-                          per-phase-reactive-power per-phase-power inclusion-lower
-                          inclusion-upper)))
+                          per-phase-reactive-power per-phase-power bounds)))
 
 (defun make-battery-inverter (&rest plist)
   (let* ((id (or (plist-get plist :id) (get-comp-id)))
@@ -170,8 +169,6 @@
                                       ,reactive-power-symbol)))
                          (component-state . (power->component-state
                                              ,(make-power-expr successors))))))
-         (bounds-expr `((inclusion-lower . ,rated-lower)
-                        (inclusion-upper . ,rated-upper)))
          (bounds-check-func-symbol (bounds-check-func-symbol-from-id id))
          (reactive-bounds-check-func-symbol (reactive-bounds-check-func-symbol-from-id id))
          (active-power-bounds-symbol (active-power-bounds-symbol-from-id id))
@@ -192,7 +189,7 @@
                           (cons 'data
                                 (macroexpand '(inverter-data-maker
                                         `((id . ,id)
-                                          ,@bounds-expr
+                                          (bounds . ,active-power-bounds-symbol)
                                           ,@power-expr)
                                         config-alist))))))))
 
@@ -338,8 +335,7 @@
                           (cons 'data
                                 (macroexpand '(inverter-data-maker
                                         `((id . ,id)
-                                          (inclusion-lower . ,rated-lower)
-                                          (inclusion-upper . ,rated-upper)
+                                          (bounds . ,active-power-bounds-symbol)
                                           ,@power-expr)
                                         config-alist))))))))
 

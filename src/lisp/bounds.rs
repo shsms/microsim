@@ -105,7 +105,7 @@ impl TulispComponentBounds {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct VecBounds(Vec<Bounds>);
+pub(crate) struct VecBounds(pub(crate) Vec<Bounds>);
 
 impl std::fmt::Display for VecBounds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
