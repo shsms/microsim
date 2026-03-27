@@ -81,8 +81,11 @@
             `(lambda ()
                (setq ,dc-power-bounds-symbol
                      (bounds/add-raw
+                      ;; current bounds with expired bounds removed
                       (bounds/drop-expired ,dc-power-bounds-symbol)
+                      ;; create time
                       (dt:now)
+                      ;; lower bound
                       (if (< (- ,soc-symbol ,soc-lower) 10.0)
                           (* ,rated-lower
                              (bounded-exp-decay ,(+ soc-lower 10.0)
@@ -91,6 +94,7 @@
                                                 1.2
                                                 0.3))
                           ,rated-lower)
+                      ;; upper bound
                       (if (< (- ,soc-upper ,soc-symbol) 10.0)
                           (* ,rated-upper
                              (bounded-exp-decay ,(- soc-upper 10.0)
@@ -98,7 +102,9 @@
                                                 ,soc-symbol
                                                 1.2
                                                 0.3))
-                          ,rated-upper)))
+                          ,rated-upper)
+                      ;; lifetime
+                      (ceiling (min 1 (* 3 (/ interval 1000.0))))))
 
                ;; ensure power is within bounds after soc update
                (setq ,power-symbol

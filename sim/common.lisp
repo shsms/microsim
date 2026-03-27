@@ -173,10 +173,10 @@
       (log.warn "No reset power function found for component id %d" id))))
 
 
-(defun augment-active-power-bounds (id create-ts bounds)
+(defun augment-active-power-bounds (id create-ts bounds lifetime-secs)
   (let* ((active-power-bounds-symbol (active-power-bounds-symbol-from-id id)))
     (set active-power-bounds-symbol
-         (bounds/add (eval active-power-bounds-symbol) create-ts bounds))))
+         (bounds/add (eval active-power-bounds-symbol) create-ts bounds lifetime-secs))))
 
 (defun component-data-maker (data-alist defaults-alist keys)
   (let ((data-alist (eval data-alist))

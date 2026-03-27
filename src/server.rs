@@ -229,9 +229,10 @@ impl microgrid_server::Microgrid for MicrogridServer {
                 request.target_metric
             )));
         }
-
-        self.config
-            .augment_active_power_bounds(component_id, request.bounds)
+        let request_lifetime = request.request_lifetime.unwrap_or(5).max(5).min(15 * 60) as i64;
+        let expiry_time = self
+            .config
+            .augment_active_power_bounds(component_id, request.bounds, request_lifetime)
             .map_err(|e| {
                 log::error!("Tulisp error:\n{}", e.format(&self.config.ctx.borrow()));
                 tonic::Status::failed_precondition(e.desc())
@@ -239,7 +240,11 @@ impl microgrid_server::Microgrid for MicrogridServer {
 
         Ok(tonic::Response::new(
             AugmentElectricalComponentBoundsResponse {
-                valid_until_time: None,
+                valid_until_time: expiry_time.map(|t| {
+                    let seconds = t.timestamp();
+                    let nanos = t.timestamp_subsec_nanos() as i32;
+                    prost_types::Timestamp { seconds, nanos }
+                }),
             },
         ))
     }

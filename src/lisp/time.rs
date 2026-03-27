@@ -68,7 +68,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct TulispDateTime(chrono::DateTime<chrono::Utc>);
 
 impl Display for TulispDateTime {

@@ -8,8 +8,13 @@ use crate::{lisp::time::TulispDateTime, proto::common::v1alpha8::metrics::Bounds
 pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
     ctx.add_function(
         "bounds/add",
-        |mut bounds: TulispComponentBounds, create_ts: TulispDateTime, new_bounds: VecBounds| {
-            bounds.augmented.push_back((create_ts, new_bounds));
+        |mut bounds: TulispComponentBounds,
+         create_ts: TulispDateTime,
+         new_bounds: VecBounds,
+         lifetime_s: i64| {
+            bounds
+                .augmented
+                .push_back((create_ts, new_bounds, lifetime_s));
             bounds
         },
     );
@@ -18,14 +23,16 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         "bounds/add-raw",
         |mut bounds: TulispComponentBounds,
          create_ts: TulispDateTime,
-         lower: Option<f64>,
-         upper: Option<f64>| {
+         lower: f64,
+         upper: f64,
+         lifetime_s: i64| {
             bounds.augmented.push_back((
                 create_ts,
                 VecBounds::new(vec![Bounds {
-                    lower: lower.map(|x| x as f32),
-                    upper: upper.map(|x| x as f32),
+                    lower: Some(lower as f32),
+                    upper: Some(upper as f32),
                 }]),
+                lifetime_s,
             ));
             bounds
         },
@@ -45,8 +52,8 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         "bounds/drop-expired",
         |mut bounds: TulispComponentBounds| -> TulispComponentBounds {
             let now = TulispDateTime::now();
-            while let Some((ts, _)) = bounds.augmented.front() {
-                if **ts + Duration::seconds(5) < *now {
+            while let Some((ts, _, dur)) = bounds.augmented.front() {
+                if **ts + Duration::seconds(*dur) < *now {
                     bounds.augmented.pop_front();
                 } else {
                     break;
@@ -84,7 +91,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
 #[derive(Debug, Clone)]
 pub(crate) struct TulispComponentBounds {
     pub(crate) rated_bounds: VecBounds,
-    pub(crate) augmented: VecDeque<(TulispDateTime, VecBounds)>,
+    pub(crate) augmented: VecDeque<(TulispDateTime, VecBounds, i64)>,
 }
 
 impl std::fmt::Display for TulispComponentBounds {
@@ -128,7 +135,7 @@ impl TulispComponentBounds {
     pub fn squash(&self) -> VecBounds {
         let mut bounds = self.rated_bounds.clone();
 
-        for (_, b) in self.augmented.iter() {
+        for (_, b, _) in self.augmented.iter() {
             bounds = bounds.intersect(b);
         }
         return bounds;

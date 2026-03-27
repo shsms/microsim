@@ -2,6 +2,7 @@ mod bounds;
 mod time;
 
 use crate::lisp::bounds::TulispComponentBounds;
+use chrono::{DateTime, TimeDelta, Utc};
 use rand::Rng;
 use std::{
     cell::{Cell, RefCell},
@@ -629,9 +630,10 @@ Invalid socket-addr.  Add a config line in this format:
         &self,
         component_id: u64,
         bounds: Vec<Bounds>,
-    ) -> Result<(), Error> {
+        request_lifetime_s: i64,
+    ) -> Result<Option<DateTime<Utc>>, Error> {
         if bounds.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         if bounds.len() > 1 {
@@ -641,16 +643,21 @@ Invalid socket-addr.  Add a config line in this format:
             )));
         }
 
+        let create_time = TulispDateTime::now();
+
         self.ctx.borrow_mut().funcall(
             &self.symbols.augment_active_power_bounds,
             &list![
                 ,(component_id as i64).into()
-                ,TulispDateTime::now().into()
+                ,create_time.into()
                 ,VecBounds::new(bounds).into()
+                ,request_lifetime_s.into()
             ]?,
         )?;
 
-        Ok(())
+        let expiry_time = *create_time + TimeDelta::seconds(request_lifetime_s);
+
+        Ok(Some(expiry_time))
     }
 
     fn get_conv_function(&self, component_id: u64, comp: &TulispObject) -> CompDataMaker {
@@ -1168,6 +1175,8 @@ fn add_functions(ctx: &mut TulispContext) {
         .add_function("log.error", |msg: String| log::error!("{msg}"))
         .add_function("log.debug", |msg: String| log::debug!("{msg}"))
         .add_function("log.trace", |msg: String| log::trace!("{msg}"))
+        .add_function("ceiling", |n: f64| n.ceil() as i64)
+        .add_function("floor", |n: f64| n.floor() as i64)
         .add_function("random", |limit: Option<i64>| {
             if let Some(limit) = limit {
                 rand::thread_rng().gen_range(0..limit)
