@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use chrono::Duration;
-use tulisp::{Error, Shared, TulispObject};
+use tulisp::{Error, Rest, Shared, TulispObject};
 
 use crate::{lisp::time::TulispDateTime, proto::common::v1alpha8::metrics::Bounds};
 
@@ -10,6 +10,23 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         "bounds/add",
         |mut bounds: TulispComponentBounds, create_ts: TulispDateTime, new_bounds: VecBounds| {
             bounds.augmented.push_back((create_ts, new_bounds));
+            bounds
+        },
+    );
+
+    ctx.add_function(
+        "bounds/add-raw",
+        |mut bounds: TulispComponentBounds,
+         create_ts: TulispDateTime,
+         lower: Option<f64>,
+         upper: Option<f64>| {
+            bounds.augmented.push_back((
+                create_ts,
+                VecBounds::new(vec![Bounds {
+                    lower: lower.map(|x| x as f32),
+                    upper: upper.map(|x| x as f32),
+                }]),
+            ));
             bounds
         },
     );
@@ -47,6 +64,16 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
     );
 
     ctx.add_function(
+        "bounds/contains-in-sum",
+        |value: f64, bounds_list: Rest<TulispComponentBounds>| -> bool {
+            let total_bounds = bounds_list
+                .into_iter()
+                .fold(VecBounds(vec![]), |acc, b| acc.add(&b.squash()));
+            total_bounds.contains(value as f32)
+        },
+    );
+
+    ctx.add_function(
         "bounds/limit-power",
         |bounds: TulispComponentBounds, measured_power: f64| -> f64 {
             bounds.squash().limit_power(measured_power)
@@ -62,7 +89,11 @@ pub(crate) struct TulispComponentBounds {
 
 impl std::fmt::Display for TulispComponentBounds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#<component-bounds: {:?}>", self.augmented)
+        write!(
+            f,
+            "#<rated-bounds: {}, component-bounds: {:?}>",
+            self.rated_bounds, self.augmented
+        )
     }
 }
 
@@ -162,6 +193,17 @@ impl VecBounds {
         Self(result)
     }
 
+    pub fn add(&self, other: &Self) -> Self {
+        match (self.0.as_slice(), &other.0.as_slice()) {
+            ([a], []) | ([], [a]) => Self(vec![a.clone()]),
+            ([a], [b]) => Self(vec![a.add(b)]),
+            ([a_first, .., a_last], [b_first, .., b_last]) => {
+                Self(vec![a_first.add(b_first), a_last.add(b_last)])
+            }
+            _ => Self(vec![]), // TODO: Handle more complex cases if needed
+        }
+    }
+
     pub fn limit_power(&self, measured_power: f64) -> f64 {
         let limited_power = measured_power;
         let mut prev_bounds = None;
@@ -233,6 +275,18 @@ impl Bounds {
                 };
             }
         }
+        Bounds { lower, upper }
+    }
+
+    pub fn add(&self, other: &Self) -> Self {
+        fn add_lower(a: f32, b: f32) -> f32 {
+            if a < 0.0 && b < 0.0 { a + b } else { a.max(b) }
+        }
+        fn add_upper(a: f32, b: f32) -> f32 {
+            if a > 0.0 && b > 0.0 { a + b } else { a.min(b) }
+        }
+        let lower = Self::any_or(add_lower, self.lower, other.lower);
+        let upper = Self::any_or(add_upper, self.upper, other.upper);
         Bounds { lower, upper }
     }
 

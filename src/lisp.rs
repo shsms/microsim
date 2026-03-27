@@ -750,10 +750,9 @@ impl Config {
         let current = alist_get_f32!(ctx, &alist, &symbols.current);
         let power = alist_get_f32!(ctx, &alist, &symbols.power);
 
-        let inclusion_lower = alist_get_f32!(ctx, &alist, &symbols.inclusion_lower);
-        let inclusion_upper = alist_get_f32!(ctx, &alist, &symbols.inclusion_upper);
-        let exclusion_lower = alist_get_f32!(ctx, &alist, &symbols.exclusion_lower);
-        let exclusion_upper = alist_get_f32!(ctx, &alist, &symbols.exclusion_upper);
+        let bounds: TulispComponentBounds = alist_get_as!(ctx, &alist, &symbols.bounds)
+            .and_then(|x| ctx.eval(&x))?
+            .try_into()?;
 
         let component_state = enum_from_alist::<ElectricalComponentStateCode>(
             ctx,
@@ -838,23 +837,7 @@ impl Config {
                                 ),
                             ),
                         }),
-                        bounds: if exclusion_lower == 0.0 && exclusion_upper == 0.0 {
-                            vec![Bounds {
-                                lower: Some(inclusion_lower),
-                                upper: Some(inclusion_upper),
-                            }]
-                        } else {
-                            vec![
-                                Bounds {
-                                    lower: Some(inclusion_lower),
-                                    upper: Some(exclusion_lower),
-                                },
-                                Bounds {
-                                    lower: Some(exclusion_upper),
-                                    upper: Some(inclusion_upper),
-                                },
-                            ]
-                        },
+                        bounds: bounds.squash().0,
                         ..Default::default() // TODO: Add bounds and states
                     },
                 ],
@@ -887,9 +870,10 @@ impl Config {
             alist_get_3_phase!(ctx, &alist, &symbols.per_phase_reactive_power);
         let reactive_power = alist_get_f32!(ctx, &alist, &symbols.reactive_power);
 
-        let bounds: TulispComponentBounds = alist_get_as!(ctx, &alist, &symbols.bounds)
+        let bounds: Option<TulispComponentBounds> = alist_get_as!(ctx, &alist, &symbols.bounds)
             .and_then(|x| ctx.eval(&x))?
-            .try_into()?;
+            .try_into()
+            .ok();
 
         Ok(vec![
             MetricSample {
@@ -1070,7 +1054,7 @@ impl Config {
                         }),
                     ),
                 }),
-                bounds: bounds.squash().0,
+                bounds: bounds.map(|b| b.squash().0).unwrap_or_default(),
                 ..Default::default()
             },
         ])

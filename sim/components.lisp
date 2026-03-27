@@ -8,8 +8,7 @@
                         '(id soc soc-upper soc-lower
                           capacity power voltage type
                           component-state relay-state
-                          inclusion-lower inclusion-upper
-                          exclusion-lower exclusion-upper)))
+                          bounds)))
 
 (defun make-battery (&rest plist)
   (let* ((id (or (plist-get plist :id) (get-comp-id)))
@@ -34,38 +33,13 @@
                                     10.0))))
 
          (rated-bounds (or (alist-get 'rated-bounds config-alist) '(0.0 0.0)))
-         (excl-bounds (or (alist-get 'exclusion-bounds config-alist) '(0.0 0.0)))
-
          (rated-lower (car rated-bounds))
          (rated-upper (cadr rated-bounds))
 
-         (excl-lower (car excl-bounds))
-         (excl-upper (cadr excl-bounds))
-
-         (incl-lower-symbol (inclusion-lower-symbol-from-id id))
-         (incl-upper-symbol (inclusion-upper-symbol-from-id id))
+         (dc-power-bounds-symbol (active-power-bounds-symbol-from-id id))
 
          (soc-lower (alist-get 'soc-lower config-alist))
          (soc-upper (alist-get 'soc-upper config-alist))
-
-         (incl-lower-expr `(setq ,incl-lower-symbol
-                                 (if (< (- ,soc-symbol ,soc-lower) 10.0)
-                                     (* ,rated-lower
-                                        (bounded-exp-decay ,(+ soc-lower 10.0)
-                                                           ,soc-lower
-                                                           ,soc-symbol
-                                                           1.2
-                                                           0.3))
-                                     ,rated-lower)))
-         (incl-upper-expr `(setq ,incl-upper-symbol
-                                 (if (< (- ,soc-upper ,soc-symbol) 10.0)
-                                     (* ,rated-upper
-                                        (bounded-exp-decay ,(- soc-upper 10.0)
-                                                           ,soc-upper
-                                                           ,soc-symbol
-                                                           1.2
-                                                           0.3))
-                                     ,rated-upper)))
 
          (is-healthy (is-healthy-battery config-alist))
 
@@ -73,16 +47,12 @@
                        `((power . ,power-symbol)
                          (`component-state . (power->component-state ,power-symbol)))))
 
-         (soc-bounds-expr `((soc . ,soc-symbol)
-                            (inclusion-lower . ,incl-lower-symbol)
-                            (inclusion-upper . ,incl-upper-symbol)
-                            (exclusion-lower . ,excl-lower)
-                            (exclusion-upper . ,excl-upper)))
          (battery
           `((category . battery)
             (name     . ,(format "bat-%s" id))
             (id       . ,id)
             ,@power-expr
+            (bounds . ,dc-power-bounds-symbol)
             (rated-lower . ,rated-lower)
             (rated-upper . ,rated-upper)
             (is-healthy . ,is-healthy)
@@ -91,9 +61,12 @@
                           (cons 'data
                                 (macroexpand '(battery-data-maker
                                         `((id    . ,id)
-                                          ,@soc-bounds-expr
+                                          (soc . ,soc-symbol)
+                                          (bounds . ,dc-power-bounds-symbol)
                                           ,@power-expr)
                                         config-alist))))))))
+
+    (set dc-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
 
     (log.trace (format "Adding battery %s. Healthy: %s" id is-healthy))
 
@@ -102,6 +75,35 @@
       (set energy-symbol 0.0)
       (set soc-symbol (eval initial-soc)))
 
+    (every
+     :milliseconds interval
+     :call (eval
+            `(lambda ()
+               (setq ,dc-power-bounds-symbol
+                     (bounds/add-raw
+                      (bounds/drop-expired ,dc-power-bounds-symbol)
+                      (dt:now)
+                      (if (< (- ,soc-symbol ,soc-lower) 10.0)
+                          (* ,rated-lower
+                             (bounded-exp-decay ,(+ soc-lower 10.0)
+                                                ,soc-lower
+                                                ,soc-symbol
+                                                1.2
+                                                0.3))
+                          ,rated-lower)
+                      (if (< (- ,soc-upper ,soc-symbol) 10.0)
+                          (* ,rated-upper
+                             (bounded-exp-decay ,(- soc-upper 10.0)
+                                                ,soc-upper
+                                                ,soc-symbol
+                                                1.2
+                                                0.3))
+                          ,rated-upper)))
+
+               ;; ensure power is within bounds after soc update
+               (setq ,power-symbol
+                     (bounds/limit-power ,dc-power-bounds-symbol ,power-symbol)))))
+
     (setq state-update-functions
           (cons (eval (list 'lambda '(ms-since-last-call)
                             `(setq ,energy-symbol
@@ -109,17 +111,8 @@
                                       (* ,power-symbol
                                          (/ ms-since-last-call
                                             ,(* 60.0 60.0 1000.0)))))
-                            soc-expr
-                            incl-lower-expr
-                            incl-upper-expr
-                            `(cond ((< ,power-symbol ,incl-lower-symbol)
-                                    (setq ,power-symbol ,incl-lower-symbol))
-                                   ((> ,power-symbol ,incl-upper-symbol)
-                                    (setq ,power-symbol ,incl-upper-symbol)))))
+                            soc-expr))
                 state-update-functions))
-
-    (eval incl-lower-expr)
-    (eval incl-upper-expr)
 
     (add-to-components-alist battery)
 
