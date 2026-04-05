@@ -20,3 +20,7 @@ chrono = "0.4.42"
 [build-dependencies]
 tonic-build = "0.12.1"
 prost-build = "0.13.1"
+
+[lib]
+name = "microsim"
+path = "src/lib.rs"
