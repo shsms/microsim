@@ -44,7 +44,7 @@ use crate::{
 };
 use notify::{RecommendedWatcher, Watcher};
 use prost_types::Timestamp;
-use tulisp::{Error, TulispContext, TulispObject, intern, list};
+use tulisp::{Error, TulispContext, TulispConvertible, TulispObject, intern, list};
 
 type CompDataMaker = fn(
     &mut TulispContext,
@@ -664,10 +664,10 @@ Invalid socket-addr.  Add a config line in this format:
         self.ctx.borrow_mut().funcall(
             &self.symbols.augment_active_power_bounds,
             &list![
-                ,(component_id as i64).into()
-                ,create_time.into()
-                ,VecBounds::new(bounds).into()
-                ,request_lifetime_s.into()
+                ,(component_id as i64).into_tulisp()
+                ,create_time.into_tulisp()
+                ,VecBounds::new(bounds).into_tulisp()
+                ,request_lifetime_s.into_tulisp()
             ]?,
         )?;
 
@@ -773,9 +773,9 @@ impl Config {
         let current = alist_get_f32!(ctx, &alist, &symbols.current);
         let power = alist_get_f32!(ctx, &alist, &symbols.power);
 
-        let bounds: TulispComponentBounds = alist_get_as!(ctx, &alist, &symbols.bounds)
-            .and_then(|x| ctx.eval(&x))?
-            .try_into()?;
+        let bounds: TulispComponentBounds = TulispConvertible::from_tulisp(
+            &alist_get_as!(ctx, &alist, &symbols.bounds).and_then(|x| ctx.eval(&x))?,
+        )?;
 
         let component_state = enum_from_alist::<ElectricalComponentStateCode>(
             ctx,
@@ -893,10 +893,10 @@ impl Config {
             alist_get_3_phase!(ctx, &alist, &symbols.per_phase_reactive_power);
         let reactive_power = alist_get_f32!(ctx, &alist, &symbols.reactive_power);
 
-        let bounds: Option<TulispComponentBounds> = alist_get_as!(ctx, &alist, &symbols.bounds)
-            .and_then(|x| ctx.eval(&x))?
-            .try_into()
-            .ok();
+        let bounds: Option<TulispComponentBounds> = TulispConvertible::from_tulisp(
+            &alist_get_as!(ctx, &alist, &symbols.bounds).and_then(|x| ctx.eval(&x))?,
+        )
+        .ok();
 
         Ok(vec![
             MetricSample {

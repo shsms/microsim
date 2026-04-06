@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use chrono::Duration;
-use tulisp::{Error, Rest, Shared, TulispObject};
+use tulisp::{Error, Rest, Shared, TulispConvertible, TulispObject};
 
 use crate::{lisp::time::TulispDateTime, proto::common::v1alpha8::metrics::Bounds};
 
@@ -104,23 +104,23 @@ impl std::fmt::Display for TulispComponentBounds {
     }
 }
 
-impl From<TulispComponentBounds> for TulispObject {
-    fn from(value: TulispComponentBounds) -> Self {
-        Shared::new(value).into()
-    }
-}
-
-impl TryFrom<TulispObject> for TulispComponentBounds {
-    type Error = Error;
-
-    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+impl TulispConvertible for TulispComponentBounds {
+    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
         match value.as_any() {
             Ok(value) => match value.downcast_ref::<TulispComponentBounds>() {
                 Some(v) => Ok(v.clone()),
-                None => Err(Error::type_mismatch("Expected ActiveVecBounds".to_string())),
+                None => Err(Error::type_mismatch(format!(
+                    "Expected TulispComponentBounds, got {value}."
+                ))),
             },
-            Err(_) => Err(Error::type_mismatch("Expected ActiveVecBounds".to_string())),
+            Err(_) => Err(Error::type_mismatch(format!(
+                "Expected TulispComponentBounds, got {value}."
+            ))),
         }
+    }
+
+    fn into_tulisp(self) -> TulispObject {
+        Shared::new(self).into()
     }
 }
 
@@ -151,23 +151,23 @@ impl std::fmt::Display for VecBounds {
     }
 }
 
-impl From<VecBounds> for TulispObject {
-    fn from(value: VecBounds) -> Self {
-        Shared::new(value).into()
-    }
-}
-
-impl TryFrom<TulispObject> for VecBounds {
-    type Error = Error;
-
-    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+impl TulispConvertible for VecBounds {
+    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
         match value.as_any() {
             Ok(value) => match value.downcast_ref::<VecBounds>() {
                 Some(v) => Ok(v.clone()),
-                None => Err(Error::type_mismatch("Expected AugmentedBounds".to_string())),
+                None => Err(Error::type_mismatch(format!(
+                    "Expected VecBounds, got {value}"
+                ))),
             },
-            Err(_) => Err(Error::type_mismatch("Expected AugmentedBounds".to_string())),
+            Err(_) => Err(Error::type_mismatch(format!(
+                "Expected VecBounds, got {value}"
+            ))),
         }
+    }
+
+    fn into_tulisp(self) -> TulispObject {
+        Shared::new(self).into()
     }
 }
 
