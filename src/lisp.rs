@@ -307,6 +307,22 @@ impl Config {
         }
     }
 
+    pub fn tags_table(filename: &str) -> Result<String, Error> {
+        let mut ctx = tulisp::TulispContext::new();
+        add_functions(&mut ctx);
+
+        let config_path = Path::new(filename);
+        log::debug!("Using config path: {}", config_path.display());
+
+        if let Some(p) = config_path.parent() {
+            log::debug!("Using load path: {}", p.display());
+            ctx.set_load_path(Some(p))
+                .unwrap_or_else(|e| panic!("set_load_path({}): {:?}", config_path.display(), e));
+        }
+
+        ctx.tags_table(Some(&[filename]))
+    }
+
     pub fn reload(&self) {
         let start = std::time::Instant::now();
         let mut ctx = self.ctx.borrow_mut();

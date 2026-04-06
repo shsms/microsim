@@ -21,8 +21,8 @@ use crate::proto::microgrid::v1alpha18::{
 };
 
 pub struct MicrogridServer {
-    pub config: Config,
-    pub timeout_tracker: crate::timeout_tracker::TimeoutTracker,
+    pub(crate) config: Config,
+    pub(crate) timeout_tracker: crate::timeout_tracker::TimeoutTracker,
 }
 
 impl MicrogridServer {
