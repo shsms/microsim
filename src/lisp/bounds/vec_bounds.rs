@@ -57,7 +57,7 @@ impl VecBounds {
                 }
             }
         }
-        Self(result)
+        Self::squash(result)
     }
 
     pub fn add(&self, other: &Self) -> Self {
@@ -69,6 +69,34 @@ impl VecBounds {
             }
             _ => Self(vec![]), // TODO: Handle more complex cases if needed
         }
+    }
+
+    pub fn squash(mut input: Vec<Bounds>) -> Self {
+        input.sort_by(|a, b| {
+            a.lower
+                .unwrap_or(f32::MIN)
+                .partial_cmp(&b.lower.unwrap_or(f32::MIN))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if input.is_empty() {
+            return Self(input);
+        }
+
+        let mut squashed = Vec::new();
+        let mut current = input[0].clone();
+
+        for next in &input[1..] {
+            if let Some(merged_bounds) = current.merge_if_overlapping(next) {
+                current = merged_bounds;
+            } else {
+                squashed.push(current);
+                current = next.clone();
+            }
+        }
+        squashed.push(current);
+
+        Self(squashed)
     }
 
     pub fn limit_power(&self, measured_power: f64) -> f64 {
@@ -195,8 +223,6 @@ mod tests {
             intersection2.0,
             vec![
                 Bounds::new(Some(-30.0), Some(-10.0)),
-                Bounds::new(Some(-20.0), Some(-10.0)),
-                Bounds::new(Some(10.0), Some(30.0)),
                 Bounds::new(Some(10.0), Some(30.0)),
             ]
         );

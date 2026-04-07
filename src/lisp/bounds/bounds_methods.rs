@@ -64,6 +64,19 @@ impl Bounds {
         }
         true
     }
+
+    pub fn merge_if_overlapping(&self, other: &Self) -> Option<Self> {
+        let intersection = self.intersect(other);
+
+        if intersection.lower.is_some() || intersection.upper.is_some() {
+            Some(Bounds {
+                lower: self.lower.and_then(|a| other.lower.map(|b| a.min(b))),
+                upper: self.upper.and_then(|a| other.upper.map(|b| a.max(b))),
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl std::cmp::PartialEq<f64> for Bounds {
@@ -332,5 +345,33 @@ mod tests {
         assert!(b4 >= -100.0);
         assert!(b4 <= 100.0);
         assert!(b4 == 0.0);
+    }
+
+    #[test]
+    fn test_bounds_merge() {
+        let b1 = super::Bounds::new(Some(0.0), Some(10.0));
+        let b2 = super::Bounds::new(Some(5.0), Some(15.0));
+
+        let merged = b1.merge_if_overlapping(&b2).unwrap();
+        assert_eq!(merged, super::Bounds::new(Some(0.0), Some(15.0)));
+
+        let b3 = super::Bounds::new(Some(10.0), Some(20.0));
+        let merged2 = b1.merge_if_overlapping(&b3).unwrap();
+        assert_eq!(merged2, super::Bounds::new(Some(0.0), Some(20.0)));
+
+        let b4 = super::Bounds::new(Some(11.0), Some(20.0));
+        assert!(b1.merge_if_overlapping(&b4).is_none());
+
+        let b5 = super::Bounds::new(None, Some(10.0));
+        let merged3 = b1.merge_if_overlapping(&b5).unwrap();
+        assert_eq!(merged3, super::Bounds::new(None, Some(10.0)));
+
+        let b6 = super::Bounds::new(Some(0.0), None);
+        let merged4 = b1.merge_if_overlapping(&b6).unwrap();
+        assert_eq!(merged4, super::Bounds::new(Some(0.0), None));
+
+        let b7 = super::Bounds::new(None, None);
+        let merged5 = b1.merge_if_overlapping(&b7).unwrap();
+        assert_eq!(merged5, super::Bounds::new(None, None));
     }
 }
