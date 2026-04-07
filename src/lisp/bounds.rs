@@ -1,3 +1,5 @@
+mod bounds_methods;
+
 use std::collections::VecDeque;
 
 use chrono::Duration;
@@ -259,95 +261,5 @@ impl VecBounds {
             return lower as f64;
         }
         limited_power
-    }
-}
-
-impl Bounds {
-    fn any_or(f: impl FnOnce(f32, f32) -> f32, a: Option<f32>, b: Option<f32>) -> Option<f32> {
-        match (a, b) {
-            (Some(a), Some(b)) => Some(f(a, b)),
-            (Some(a), None) | (None, Some(a)) => Some(a),
-            (None, None) => None,
-        }
-    }
-
-    pub fn intersect(&self, other: &Self) -> Self {
-        let lower = Self::any_or(f32::max, self.lower, other.lower);
-        let upper = Self::any_or(f32::min, self.upper, other.upper);
-        if let (Some(lower), Some(upper)) = (lower, upper) {
-            if lower > upper {
-                return Bounds {
-                    lower: None,
-                    upper: None,
-                };
-            }
-        }
-        Bounds { lower, upper }
-    }
-
-    pub fn add(&self, other: &Self) -> Self {
-        fn add_lower(a: f32, b: f32) -> f32 {
-            if a < 0.0 && b < 0.0 { a + b } else { a.max(b) }
-        }
-        fn add_upper(a: f32, b: f32) -> f32 {
-            if a > 0.0 && b > 0.0 { a + b } else { a.min(b) }
-        }
-        let lower = Self::any_or(add_lower, self.lower, other.lower);
-        let upper = Self::any_or(add_upper, self.upper, other.upper);
-        Bounds { lower, upper }
-    }
-
-    pub fn contains(&self, value: f32) -> bool {
-        if let Some(lower) = self.lower {
-            if value < lower {
-                return false;
-            }
-        }
-        if let Some(upper) = self.upper {
-            if value > upper {
-                return false;
-            }
-        }
-        true
-    }
-}
-
-impl std::cmp::PartialEq<f64> for Bounds {
-    fn eq(&self, other: &f64) -> bool {
-        self.contains(*other as f32)
-    }
-}
-
-impl std::cmp::PartialOrd<f64> for Bounds {
-    fn partial_cmp(&self, other: &f64) -> Option<std::cmp::Ordering> {
-        if self.contains(*other as f32) {
-            Some(std::cmp::Ordering::Equal)
-        } else if let Some(lower) = self.lower {
-            if lower < (*other as f32) {
-                Some(std::cmp::Ordering::Less)
-            } else {
-                Some(std::cmp::Ordering::Greater)
-            }
-        } else if let Some(upper) = self.upper {
-            if upper > *other as f32 {
-                Some(std::cmp::Ordering::Greater)
-            } else {
-                Some(std::cmp::Ordering::Less)
-            }
-        } else {
-            Some(std::cmp::Ordering::Equal)
-        }
-    }
-}
-
-impl std::cmp::PartialEq<Bounds> for f64 {
-    fn eq(&self, other: &Bounds) -> bool {
-        other.contains(*self as f32)
-    }
-}
-
-impl std::cmp::PartialOrd<Bounds> for f64 {
-    fn partial_cmp(&self, other: &Bounds) -> Option<std::cmp::Ordering> {
-        other.partial_cmp(self).map(|o| o.reverse())
     }
 }
