@@ -1,12 +1,13 @@
 mod bounds_methods;
 
+mod tulisp_components_bounds;
+pub(crate) use tulisp_components_bounds::TulispComponentBounds;
+
 mod vec_bounds;
 pub(crate) use vec_bounds::VecBounds;
 
-use std::collections::VecDeque;
-
 use chrono::Duration;
-use tulisp::{Error, Rest, Shared, TulispConvertible, TulispObject};
+use tulisp::Rest;
 
 use crate::{lisp::time::TulispDateTime, proto::common::metrics::Bounds};
 
@@ -91,58 +92,4 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
             bounds.squash().limit_power(measured_power)
         },
     );
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TulispComponentBounds {
-    pub(crate) rated_bounds: VecBounds,
-    pub(crate) augmented: VecDeque<(TulispDateTime, VecBounds, i64)>,
-}
-
-impl std::fmt::Display for TulispComponentBounds {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "#<rated-bounds: {}, component-bounds: {:?}>",
-            self.rated_bounds, self.augmented
-        )
-    }
-}
-
-impl TulispConvertible for TulispComponentBounds {
-    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
-        match value.as_any() {
-            Ok(value) => match value.downcast_ref::<TulispComponentBounds>() {
-                Some(v) => Ok(v.clone()),
-                None => Err(Error::type_mismatch(format!(
-                    "Expected TulispComponentBounds, got {value}."
-                ))),
-            },
-            Err(_) => Err(Error::type_mismatch(format!(
-                "Expected TulispComponentBounds, got {value}."
-            ))),
-        }
-    }
-
-    fn into_tulisp(self) -> TulispObject {
-        Shared::new(self).into()
-    }
-}
-
-impl TulispComponentBounds {
-    pub fn new(rated_bounds: VecBounds) -> Self {
-        TulispComponentBounds {
-            rated_bounds,
-            augmented: VecDeque::new(),
-        }
-    }
-
-    pub fn squash(&self) -> VecBounds {
-        let mut bounds = self.rated_bounds.clone();
-
-        for (_, b, _) in self.augmented.iter() {
-            bounds = bounds.intersect(b);
-        }
-        return bounds;
-    }
 }
