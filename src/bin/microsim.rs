@@ -1,4 +1,4 @@
-use microsim::proto::microgrid::v1alpha18::microgrid_server;
+use microsim::proto::microgrid::microgrid_server;
 use std::env;
 use tonic::transport::Server;
 

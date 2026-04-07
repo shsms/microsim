@@ -6,8 +6,8 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::lisp::Config;
 
-use crate::proto::common::v1alpha8::metrics::Metric;
-use crate::proto::microgrid::v1alpha18::{
+use crate::proto::common::metrics::Metric;
+use crate::proto::microgrid::{
     AckElectricalComponentErrorRequest, AugmentElectricalComponentBoundsRequest,
     AugmentElectricalComponentBoundsResponse, GetMicrogridResponse,
     ListElectricalComponentConnectionsRequest, ListElectricalComponentConnectionsResponse,

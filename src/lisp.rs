@@ -17,7 +17,7 @@ use crate::{
     lisp::bounds::VecBounds,
     lisp::time::TulispDateTime,
     proto::{
-        common::v1alpha8::{
+        common::{
             grid::{DeliveryArea, EnergyMarketCodeType},
             metrics::{
                 Bounds, Metric, MetricSample, MetricValueVariant, SimpleMetricValue,
@@ -35,7 +35,7 @@ use crate::{
                 },
             },
         },
-        microgrid::v1alpha18::{
+        microgrid::{
             GetMicrogridResponse, ListElectricalComponentConnectionsRequest,
             ListElectricalComponentConnectionsResponse, ListElectricalComponentsRequest,
             ListElectricalComponentsResponse, ReceiveElectricalComponentTelemetryStreamResponse,
@@ -505,7 +505,7 @@ Invalid socket-addr.  Add a config line in this format:
         let location = if let Ok(location) =
             alist_get_as!(&mut self.ctx.borrow_mut(), &alist, &self.symbols.location)
         {
-            Some(crate::proto::common::v1alpha8::types::Location {
+            Some(crate::proto::common::types::Location {
                 latitude: location.car()?.as_float().unwrap_or_default() as f32,
                 longitude: location.cadr()?.as_float().unwrap_or_default() as f32,
                 country_code: location.caddr()?.as_string().unwrap_or_default(),
@@ -536,7 +536,7 @@ Invalid socket-addr.  Add a config line in this format:
         };
 
         Ok(GetMicrogridResponse {
-            microgrid: Some(crate::proto::common::v1alpha8::microgrid::Microgrid {
+            microgrid: Some(crate::proto::common::microgrid::Microgrid {
                 id: microgrid_id,
                 enterprise_id,
                 name: format!("Microgrid {}", microgrid_id),

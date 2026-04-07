@@ -1,54 +1,24 @@
-use common::v1alpha8::{
+use common::{
     grid::EnergyMarketCodeType,
     microgrid::{MicrogridStatus, electrical_components::ElectricalComponentStateCode},
 };
 
-use crate::proto::common::v1alpha8::microgrid::electrical_components::{
+use crate::proto::common::microgrid::electrical_components::{
     BatteryType, ElectricalComponentCategory, EvChargerType, InverterType,
 };
 
-#[allow(clippy::doc_lazy_continuation, dead_code)]
-pub mod common {
-    pub mod v1alpha8 {
-        pub mod grid {
-            #![allow(clippy::derive_partial_eq_without_eq)]
-            tonic::include_proto!("frequenz.api.common.v1alpha8.grid");
-        }
-
-        pub mod microgrid {
-            #![allow(clippy::derive_partial_eq_without_eq)]
-            tonic::include_proto!("frequenz.api.common.v1alpha8.microgrid");
-            pub mod electrical_components {
-                #![allow(clippy::derive_partial_eq_without_eq)]
-                tonic::include_proto!(
-                    "frequenz.api.common.v1alpha8.microgrid.electrical_components"
-                );
-            }
-            pub mod sensors {
-                #![allow(clippy::derive_partial_eq_without_eq)]
-                tonic::include_proto!("frequenz.api.common.v1alpha8.microgrid.sensors");
-            }
-        }
-
-        pub mod metrics {
-            #![allow(clippy::derive_partial_eq_without_eq)]
-            tonic::include_proto!("frequenz.api.common.v1alpha8.metrics");
-        }
-
-        pub mod types {
-            #![allow(clippy::derive_partial_eq_without_eq)]
-            tonic::include_proto!("frequenz.api.common.v1alpha8.types");
-        }
-    }
+#[allow(
+    clippy::doc_lazy_continuation,
+    clippy::module_inception,
+    dead_code,
+    clippy::enum_variant_names
+)]
+mod pb {
+    tonic::include_proto!("proto_v1_alpha18");
 }
 
-#[allow(clippy::doc_lazy_continuation)]
-pub mod microgrid {
-    pub mod v1alpha18 {
-        #![allow(clippy::derive_partial_eq_without_eq)]
-        tonic::include_proto!("frequenz.api.microgrid.v1alpha18");
-    }
-}
+pub use pb::frequenz::api::common::v1alpha8 as common;
+pub use pb::frequenz::api::microgrid::v1alpha18 as microgrid;
 
 macro_rules! impl_enum_from_str {
     ($(($t:ty, $p:literal),)+) => {

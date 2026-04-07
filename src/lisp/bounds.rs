@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use chrono::Duration;
 use tulisp::{Error, Rest, Shared, TulispConvertible, TulispObject};
 
-use crate::{lisp::time::TulispDateTime, proto::common::v1alpha8::metrics::Bounds};
+use crate::{lisp::time::TulispDateTime, proto::common::metrics::Bounds};
 
 pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
     ctx.add_function(
