@@ -6,12 +6,9 @@ pub(crate) use tulisp_components_bounds::TulispComponentBounds;
 mod vec_bounds;
 pub(crate) use vec_bounds::VecBounds;
 
-use chrono::Duration;
-use tulisp::Rest;
-
-use crate::{lisp::time::TulispDateTime, proto::common::metrics::Bounds};
-
 pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
+    use crate::{lisp::time::TulispDateTime, proto::common::metrics::Bounds};
+
     ctx.add_function(
         "bounds/add",
         |mut bounds: TulispComponentBounds,
@@ -59,7 +56,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         |mut bounds: TulispComponentBounds| -> TulispComponentBounds {
             let now = TulispDateTime::now();
             while let Some((ts, _, dur)) = bounds.augmented.front() {
-                if **ts + Duration::seconds(*dur) < *now {
+                if **ts + chrono::Duration::seconds(*dur) < *now {
                     bounds.augmented.pop_front();
                 } else {
                     break;
@@ -78,7 +75,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
 
     ctx.add_function(
         "bounds/contains-in-sum",
-        |value: f64, bounds_list: Rest<TulispComponentBounds>| -> bool {
+        |value: f64, bounds_list: tulisp::Rest<TulispComponentBounds>| -> bool {
             let total_bounds = bounds_list
                 .into_iter()
                 .fold(VecBounds(vec![]), |acc, b| acc.add(&b.squash()));
