@@ -1,6 +1,10 @@
 use crate::proto::common::metrics::Bounds;
 
 impl Bounds {
+    pub fn new(lower: Option<f32>, upper: Option<f32>) -> Self {
+        Bounds { lower, upper }
+    }
+
     fn any_or(f: impl FnOnce(f32, f32) -> f32, a: Option<f32>, b: Option<f32>) -> Option<f32> {
         match (a, b) {
             (Some(a), Some(b)) => Some(f(a, b)),

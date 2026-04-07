@@ -1,5 +1,8 @@
 mod bounds_methods;
 
+mod vec_bounds;
+pub(crate) use vec_bounds::VecBounds;
+
 use std::collections::VecDeque;
 
 use chrono::Duration;
@@ -141,125 +144,5 @@ impl TulispComponentBounds {
             bounds = bounds.intersect(b);
         }
         return bounds;
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct VecBounds(pub(crate) Vec<Bounds>);
-
-impl std::fmt::Display for VecBounds {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#<bounds: {:?}>", self.0)
-    }
-}
-
-impl TulispConvertible for VecBounds {
-    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
-        match value.as_any() {
-            Ok(value) => match value.downcast_ref::<VecBounds>() {
-                Some(v) => Ok(v.clone()),
-                None => Err(Error::type_mismatch(format!(
-                    "Expected VecBounds, got {value}"
-                ))),
-            },
-            Err(_) => Err(Error::type_mismatch(format!(
-                "Expected VecBounds, got {value}"
-            ))),
-        }
-    }
-
-    fn into_tulisp(self) -> TulispObject {
-        Shared::new(self).into()
-    }
-}
-
-impl VecBounds {
-    pub fn new(mut bounds: Vec<Bounds>) -> Self {
-        bounds.sort_by(|a, b| {
-            let a_lower = a.lower.unwrap_or(f32::MIN);
-            let b_lower = b.lower.unwrap_or(f32::MIN);
-            a_lower
-                .partial_cmp(&b_lower)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        VecBounds(bounds)
-    }
-
-    pub fn contains(&self, value: f32) -> bool {
-        self.0.iter().any(|b| b.contains(value))
-    }
-
-    pub fn intersect(&self, other: &Self) -> Self {
-        let mut result = Vec::new();
-        for b1 in &self.0 {
-            for b2 in &other.0 {
-                let int = b1.intersect(b2);
-                if int.lower.is_some() || int.upper.is_some() {
-                    result.push(int);
-                }
-            }
-        }
-        Self(result)
-    }
-
-    pub fn add(&self, other: &Self) -> Self {
-        match (self.0.as_slice(), &other.0.as_slice()) {
-            ([a], []) | ([], [a]) => Self(vec![a.clone()]),
-            ([a], [b]) => Self(vec![a.add(b)]),
-            ([a_first, .., a_last], [b_first, .., b_last]) => {
-                Self(vec![a_first.add(b_first), a_last.add(b_last)])
-            }
-            _ => Self(vec![]), // TODO: Handle more complex cases if needed
-        }
-    }
-
-    pub fn limit_power(&self, measured_power: f64) -> f64 {
-        let limited_power = measured_power;
-        let mut prev_bounds = None;
-
-        for bounds in &self.0 {
-            if bounds.contains(measured_power as f32) {
-                return measured_power;
-            }
-
-            if measured_power < *bounds {
-                match (prev_bounds, *bounds) {
-                    (
-                        Some(Bounds {
-                            upper: Some(prev_upper),
-                            ..
-                        }),
-                        Bounds {
-                            lower: Some(lower), ..
-                        },
-                    ) => {
-                        if (measured_power - prev_upper as f64).abs()
-                            < (lower as f64 - measured_power).abs()
-                        {
-                            return prev_upper as f64;
-                        } else {
-                            return lower as f64;
-                        }
-                    }
-                    _ => {
-                        return bounds.lower.map(|x| x as f64).unwrap_or(measured_power);
-                    }
-                }
-            }
-
-            prev_bounds = Some(*bounds);
-        }
-        if let Some(Bounds {
-            upper: Some(upper), ..
-        }) = prev_bounds
-        {
-            return upper as f64;
-        } else if let Some(Bounds {
-            lower: Some(lower), ..
-        }) = prev_bounds
-        {
-            return lower as f64;
-        }
-        limited_power
     }
 }
