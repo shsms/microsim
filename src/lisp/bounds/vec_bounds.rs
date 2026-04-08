@@ -63,9 +63,16 @@ impl VecBounds {
     pub fn add(&self, other: &Self) -> Self {
         match (self.0.as_slice(), &other.0.as_slice()) {
             ([a], []) | ([], [a]) => Self(vec![a.clone()]),
-            ([a], [b]) => Self(vec![a.add(b)]),
+            ([a], [b]) => Self(a.add(b)),
+            ([a_first, .., a_last], [b]) | ([b], [a_first, .., a_last]) => {
+                let mut result = a_first.add(b);
+                result.extend(a_last.add(b).into_iter());
+                Self::squash(result)
+            }
             ([a_first, .., a_last], [b_first, .., b_last]) => {
-                Self(vec![a_first.add(b_first), a_last.add(b_last)])
+                let mut result = a_first.add(b_first);
+                result.extend(a_last.add(b_last).into_iter());
+                Self::squash(result)
             }
             _ => Self(vec![]), // TODO: Handle more complex cases if needed
         }
@@ -198,12 +205,10 @@ mod tests {
             Bounds::new(Some(-30.0), Some(-10.0)),
             Bounds::new(Some(10.0), Some(30.0)),
         ]);
-
         let vb2 = VecBounds::new(vec![
             Bounds::new(Some(-20.0), Some(0.0)),
             Bounds::new(Some(20.0), Some(40.0)),
         ]);
-
         let intersection = vb1.intersect(&vb2);
         assert_eq!(
             intersection.0,
@@ -213,31 +218,68 @@ mod tests {
             ]
         );
 
-        let vb3 = VecBounds::new(vec![
+        let vb2 = VecBounds::new(vec![
             Bounds::new(Some(-20.0), None),
             Bounds::new(None, Some(40.0)),
         ]);
-
-        let intersection2 = vb1.intersect(&vb3);
+        let intersection = vb1.intersect(&vb2);
         assert_eq!(
-            intersection2.0,
+            intersection.0,
             vec![
                 Bounds::new(Some(-30.0), Some(-10.0)),
                 Bounds::new(Some(10.0), Some(30.0)),
             ]
         );
 
-        let vb4 = VecBounds::new(vec![
+        let vb2 = VecBounds::new(vec![
             Bounds::new(None, Some(-20.0)),
             Bounds::new(Some(20.0), None),
         ]);
-
-        let intersection3 = vb1.intersect(&vb4);
+        let intersection = vb1.intersect(&vb2);
         assert_eq!(
-            intersection3.0,
+            intersection.0,
             vec![
                 Bounds::new(Some(-30.0), Some(-20.0)),
                 Bounds::new(Some(20.0), Some(30.0)),
+            ]
+        );
+
+        let vb2 = VecBounds::new(vec![Bounds::new(Some(-25.0), Some(25.0))]);
+        let intersection = vb1.intersect(&vb2);
+        assert_eq!(
+            intersection.0,
+            vec![
+                Bounds::new(Some(-25.0), Some(-10.0)),
+                Bounds::new(Some(10.0), Some(25.0)),
+            ]
+        );
+
+        let vb2 = VecBounds::new(vec![Bounds::new(Some(-5.0), Some(5.0))]);
+        let intersection = vb1.intersect(&vb2);
+        assert_eq!(intersection.0, vec![]);
+    }
+
+    #[test]
+    fn test_vec_bounds_add() {
+        let b1 = VecBounds::new(vec![Bounds::new(Some(-5.0), Some(5.0))]);
+        let b2 = VecBounds::new(vec![
+            Bounds::new(Some(-5.0), Some(-2.0)),
+            Bounds::new(Some(2.0), Some(5.0)),
+        ]);
+        let result = b1.add(&b2);
+        assert_eq!(result.0, vec![Bounds::new(Some(-10.0), Some(10.0))]);
+
+        let b1 = VecBounds::new(vec![Bounds::new(Some(-5.0), Some(-1.0))]);
+        let b2 = VecBounds::new(vec![
+            Bounds::new(Some(-5.0), Some(-2.0)),
+            Bounds::new(Some(2.0), Some(5.0)),
+        ]);
+        let result = b1.add(&b2);
+        assert_eq!(
+            result.0,
+            vec![
+                Bounds::new(Some(-10.0), Some(-1.0)),
+                Bounds::new(Some(2.0), Some(5.0))
             ]
         );
     }

@@ -5,7 +5,7 @@ impl Bounds {
         Bounds { lower, upper }
     }
 
-    fn any_or(f: impl FnOnce(f32, f32) -> f32, a: Option<f32>, b: Option<f32>) -> Option<f32> {
+    fn map_or_any(f: impl FnOnce(f32, f32) -> f32, a: Option<f32>, b: Option<f32>) -> Option<f32> {
         match (a, b) {
             (Some(a), Some(b)) => Some(f(a, b)),
             (Some(a), None) | (None, Some(a)) => Some(a),
@@ -14,8 +14,8 @@ impl Bounds {
     }
 
     pub fn intersect(&self, other: &Self) -> Self {
-        let lower = Self::any_or(f32::max, self.lower, other.lower);
-        let upper = Self::any_or(f32::min, self.upper, other.upper);
+        let lower = Self::map_or_any(f32::max, self.lower, other.lower);
+        let upper = Self::map_or_any(f32::min, self.upper, other.upper);
         if let (Some(lower), Some(upper)) = (lower, upper) {
             if lower > upper {
                 return Bounds {
@@ -27,28 +27,30 @@ impl Bounds {
         Bounds { lower, upper }
     }
 
-    pub fn add(&self, other: &Self) -> Self {
-        fn add_lower(a: f32, b: f32) -> f32 {
-            if a <= 0.0 && b <= 0.0 {
-                a + b
-            } else {
-                a.max(b)
-            }
+    pub fn add(&self, other: &Self) -> Vec<Self> {
+        let intersection = self.intersect(other);
+        if intersection.lower.is_none() && intersection.upper.is_none() {
+            return vec![self.clone(), other.clone()];
         }
-        fn add_upper(a: f32, b: f32) -> f32 {
-            if a >= 0.0 && b >= 0.0 {
-                a + b
-            } else {
-                a.min(b)
-            }
-        }
-        let lower = self
-            .lower
-            .and_then(|a| other.lower.map(|b| add_lower(a, b)));
-        let upper = self
-            .upper
-            .and_then(|a| other.upper.map(|b| add_upper(a, b)));
-        Bounds { lower, upper }
+        let lower = self.lower.and_then(|a| {
+            other.lower.map(|b| {
+                if a <= 0.0 && b <= 0.0 {
+                    a + b
+                } else {
+                    a.min(b)
+                }
+            })
+        });
+        let upper = self.upper.and_then(|a| {
+            other.upper.map(|b| {
+                if a >= 0.0 && b >= 0.0 {
+                    a + b
+                } else {
+                    a.max(b)
+                }
+            })
+        });
+        vec![Bounds { lower, upper }]
     }
 
     pub fn contains(&self, value: f32) -> bool {
@@ -121,133 +123,79 @@ impl std::cmp::PartialOrd<Bounds> for f64 {
 
 #[cfg(test)]
 mod tests {
+    use super::Bounds;
+
     #[test]
     fn test_bounds_intersection() {
-        let b1 = super::Bounds {
-            lower: Some(0.0),
-            upper: Some(10.0),
-        };
-        let b2 = super::Bounds {
-            lower: Some(5.0),
-            upper: Some(15.0),
-        };
-        let intersection = b1.intersect(&b2);
-        assert_eq!(intersection.lower, Some(5.0));
-        assert_eq!(intersection.upper, Some(10.0));
+        let b1 = Bounds::new(Some(0.0), Some(10.0));
+        let b2 = Bounds::new(Some(5.0), Some(15.0));
+        assert_eq!(b1.intersect(&b2), Bounds::new(Some(5.0), Some(10.0)));
 
-        let b3 = super::Bounds {
-            lower: Some(11.0),
-            upper: Some(20.0),
-        };
-        let intersection2 = b1.intersect(&b3);
-        assert_eq!(intersection2.lower, None);
-        assert_eq!(intersection2.upper, None);
+        let b2 = Bounds::new(Some(11.0), Some(20.0));
+        assert_eq!(b1.intersect(&b2), Bounds::new(None, None));
 
-        let b4 = super::Bounds {
-            lower: None,
-            upper: Some(8.0),
-        };
-        let intersection3 = b1.intersect(&b4);
-        assert_eq!(intersection3.lower, Some(0.0));
-        assert_eq!(intersection3.upper, Some(8.0));
+        let b2 = Bounds::new(None, Some(8.0));
+        assert_eq!(b1.intersect(&b2), Bounds::new(Some(0.0), Some(8.0)));
 
-        let b5 = super::Bounds {
-            lower: Some(2.0),
-            upper: None,
-        };
-        let intersection4 = b1.intersect(&b5);
-        assert_eq!(intersection4.lower, Some(2.0));
-        assert_eq!(intersection4.upper, Some(10.0));
+        let b2 = Bounds::new(Some(2.0), None);
+        assert_eq!(b1.intersect(&b2), Bounds::new(Some(2.0), Some(10.0)));
 
-        let b6 = super::Bounds {
-            lower: None,
-            upper: None,
-        };
-        let intersection5 = b1.intersect(&b6);
-        assert_eq!(intersection5.lower, Some(0.0));
-        assert_eq!(intersection5.upper, Some(10.0));
+        let b2 = Bounds::new(None, None);
+        assert_eq!(b1.intersect(&b2), Bounds::new(Some(0.0), Some(10.0)));
     }
 
     #[test]
     fn test_bounds_addition() {
-        let b1 = super::Bounds {
-            lower: Some(-5.0),
-            upper: Some(5.0),
-        };
-        let b2 = super::Bounds {
-            lower: Some(-3.0),
-            upper: Some(3.0),
-        };
-        let addition = b1.add(&b2);
-        assert_eq!(addition.lower, Some(-8.0));
-        assert_eq!(addition.upper, Some(8.0));
+        let b1 = Bounds::new(Some(-5.0), Some(5.0));
+        let b2 = Bounds::new(Some(-3.0), Some(3.0));
+        assert_eq!(b1.add(&b2), vec![Bounds::new(Some(-8.0), Some(8.0))]);
 
-        let b3 = super::Bounds {
-            lower: Some(0.0),
-            upper: Some(10.0),
-        };
-        let addition2 = b1.add(&b3);
-        assert_eq!(addition2.lower, Some(-5.0));
-        assert_eq!(addition2.upper, Some(15.0));
+        let b1 = Bounds::new(Some(-15.0), Some(-5.0));
+        let b2 = Bounds::new(Some(-10.0), Some(-2.0));
+        assert_eq!(b1.add(&b2), vec![Bounds::new(Some(-25.0), Some(-2.0))]);
 
-        let b4 = super::Bounds {
-            lower: None,
-            upper: Some(10.0),
-        };
-        let addition3 = b1.add(&b4);
-        assert_eq!(addition3.lower, None);
-        assert_eq!(addition3.upper, Some(15.0));
+        let b1 = Bounds::new(Some(5.0), Some(15.0));
+        let b2 = Bounds::new(Some(2.0), Some(10.0));
+        assert_eq!(b1.add(&b2), vec![Bounds::new(Some(2.0), Some(25.0))]);
 
-        let b5 = super::Bounds {
-            lower: Some(-5.0),
-            upper: None,
-        };
-        let addition4 = b1.add(&b5);
-        assert_eq!(addition4.lower, Some(-10.0));
-        assert_eq!(addition4.upper, None);
+        let b1 = Bounds::new(Some(5.0), Some(15.0));
+        let b2 = Bounds::new(None, Some(10.0));
+        assert_eq!(b1.add(&b2), vec![Bounds::new(None, Some(25.0))]);
 
-        let b6 = super::Bounds {
-            lower: None,
-            upper: None,
-        };
-        let addition5 = b1.add(&b6);
-        assert_eq!(addition5.lower, None);
-        assert_eq!(addition5.upper, None);
+        let b1 = Bounds::new(Some(5.0), Some(15.0));
+        let b2 = Bounds::new(Some(-5.0), None);
+        assert_eq!(b1.add(&b2), vec![Bounds::new(Some(-5.0), None)]);
+
+        let b1 = Bounds::new(Some(5.0), Some(15.0));
+        let b2 = Bounds::new(None, None);
+        assert_eq!(b1.add(&b2), vec![Bounds::new(None, None)]);
+
+        let b1 = Bounds::new(Some(-10.0), Some(-5.0));
+        let b2 = Bounds::new(Some(5.0), Some(15.0));
+        assert_eq!(b1.add(&b2), vec![b1, b2]);
     }
 
     #[test]
     fn test_bounds_contains() {
-        let b1 = super::Bounds {
-            lower: Some(0.0),
-            upper: Some(10.0),
-        };
+        let b1 = Bounds::new(Some(0.0), Some(10.0));
         assert!(b1.contains(5.0));
         assert!(b1.contains(0.0));
         assert!(b1.contains(10.0));
         assert!(!b1.contains(-1.0));
         assert!(!b1.contains(11.0));
 
-        let b2 = super::Bounds {
-            lower: None,
-            upper: Some(10.0),
-        };
+        let b2 = Bounds::new(None, Some(10.0));
         assert!(b2.contains(-100.0));
         assert!(b2.contains(0.0));
         assert!(b2.contains(10.0));
         assert!(!b2.contains(11.0));
 
-        let b3 = super::Bounds {
-            lower: Some(0.0),
-            upper: None,
-        };
+        let b3 = Bounds::new(Some(0.0), None);
         assert!(!b3.contains(-1.0));
         assert!(b3.contains(0.0));
         assert!(b3.contains(100.0));
 
-        let b4 = super::Bounds {
-            lower: None,
-            upper: None,
-        };
+        let b4 = Bounds::new(None, None);
         assert!(b4.contains(-100.0));
         assert!(b4.contains(0.0));
         assert!(b4.contains(100.0));
@@ -255,37 +203,25 @@ mod tests {
 
     #[test]
     fn test_bounds_partial_eq() {
-        let b1 = super::Bounds {
-            lower: Some(0.0),
-            upper: Some(10.0),
-        };
+        let b1 = Bounds::new(Some(0.0), Some(10.0));
         assert_eq!(b1, 5.0);
         assert_eq!(b1, 0.0);
         assert_eq!(b1, 10.0);
         assert_ne!(b1, -1.0);
         assert_ne!(b1, 11.0);
 
-        let b2 = super::Bounds {
-            lower: None,
-            upper: Some(10.0),
-        };
+        let b2 = Bounds::new(None, Some(10.0));
         assert_eq!(b2, -100.0);
         assert_eq!(b2, 0.0);
         assert_eq!(b2, 10.0);
         assert_ne!(b2, 11.0);
 
-        let b3 = super::Bounds {
-            lower: Some(0.0),
-            upper: None,
-        };
+        let b3 = Bounds::new(Some(0.0), None);
         assert_ne!(b3, -1.0);
         assert_eq!(b3, 0.0);
         assert_eq!(b3, 100.0);
 
-        let b4 = super::Bounds {
-            lower: None,
-            upper: None,
-        };
+        let b4 = Bounds::new(None, None);
         assert_eq!(b4, -100.0);
         assert_eq!(b4, 0.0);
         assert_eq!(b4, 100.0);
@@ -293,10 +229,7 @@ mod tests {
 
     #[test]
     fn test_bounds_partial_ord() {
-        let b1 = super::Bounds {
-            lower: Some(0.0),
-            upper: Some(10.0),
-        };
+        let b1 = Bounds::new(Some(0.0), Some(10.0));
         assert!(b1 > -1.0);
         assert!(b1 >= 0.0);
         assert!(b1 <= 10.0);
@@ -315,10 +248,7 @@ mod tests {
         assert!(!(10.0 < b1));
         assert!(!(11.0 <= b1));
 
-        let b2 = super::Bounds {
-            lower: None,
-            upper: Some(10.0),
-        };
+        let b2 = Bounds::new(None, Some(10.0));
         assert!(b2 == -100.0);
         assert!(b2 <= 10.0);
         assert!(b2 < 11.0);
@@ -326,10 +256,7 @@ mod tests {
         assert!(!(b2 < -100.0));
         assert!(!(b2 >= 11.0));
 
-        let b3 = super::Bounds {
-            lower: Some(0.0),
-            upper: None,
-        };
+        let b3 = Bounds::new(Some(0.0), None);
         assert!(b3 > -10.0);
         assert!(b3 >= 100.0);
         assert!(b3 == 100.0);
@@ -338,10 +265,7 @@ mod tests {
         assert!(!(b3 > 100.0));
         assert!(!(b3 <= -10.0));
 
-        let b4 = super::Bounds {
-            lower: None,
-            upper: None,
-        };
+        let b4 = Bounds::new(None, None);
         assert!(b4 >= -100.0);
         assert!(b4 <= 100.0);
         assert!(b4 == 0.0);
@@ -349,29 +273,29 @@ mod tests {
 
     #[test]
     fn test_bounds_merge() {
-        let b1 = super::Bounds::new(Some(0.0), Some(10.0));
-        let b2 = super::Bounds::new(Some(5.0), Some(15.0));
+        let b1 = Bounds::new(Some(0.0), Some(10.0));
+        let b2 = Bounds::new(Some(5.0), Some(15.0));
 
         let merged = b1.merge_if_overlapping(&b2).unwrap();
-        assert_eq!(merged, super::Bounds::new(Some(0.0), Some(15.0)));
+        assert_eq!(merged, Bounds::new(Some(0.0), Some(15.0)));
 
-        let b3 = super::Bounds::new(Some(10.0), Some(20.0));
+        let b3 = Bounds::new(Some(10.0), Some(20.0));
         let merged2 = b1.merge_if_overlapping(&b3).unwrap();
-        assert_eq!(merged2, super::Bounds::new(Some(0.0), Some(20.0)));
+        assert_eq!(merged2, Bounds::new(Some(0.0), Some(20.0)));
 
-        let b4 = super::Bounds::new(Some(11.0), Some(20.0));
+        let b4 = Bounds::new(Some(11.0), Some(20.0));
         assert!(b1.merge_if_overlapping(&b4).is_none());
 
-        let b5 = super::Bounds::new(None, Some(10.0));
+        let b5 = Bounds::new(None, Some(10.0));
         let merged3 = b1.merge_if_overlapping(&b5).unwrap();
-        assert_eq!(merged3, super::Bounds::new(None, Some(10.0)));
+        assert_eq!(merged3, Bounds::new(None, Some(10.0)));
 
-        let b6 = super::Bounds::new(Some(0.0), None);
+        let b6 = Bounds::new(Some(0.0), None);
         let merged4 = b1.merge_if_overlapping(&b6).unwrap();
-        assert_eq!(merged4, super::Bounds::new(Some(0.0), None));
+        assert_eq!(merged4, Bounds::new(Some(0.0), None));
 
-        let b7 = super::Bounds::new(None, None);
+        let b7 = Bounds::new(None, None);
         let merged5 = b1.merge_if_overlapping(&b7).unwrap();
-        assert_eq!(merged5, super::Bounds::new(None, None));
+        assert_eq!(merged5, Bounds::new(None, None));
     }
 }
