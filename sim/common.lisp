@@ -16,6 +16,10 @@
   (intern (format "component-reactive-power-%s" id)))
 
 
+(defun active-power-bounds-symbol-from-id (id)
+  (intern (format "component-active-power-bounds-%s" id)))
+
+
 (defun power-symbol-from-id (id)
   (intern (format "component-power-%s" id)))
 
@@ -123,38 +127,11 @@
                         (setq p3-expr (cons '+ p3-expr))))))
 
 (defun make-battery-bounds-check-expr (successors)
-  (let ((sum-incl-lower-expr ())
-        (sum-incl-upper-expr ())
-        (sum-excl-lower-expr ())
-        (sum-excl-upper-expr ()))
-    (dolist (successor successors)
-      (when-let ((is-healthy (alist-get 'is-healthy successor))
-               (incl-lower (alist-get 'inclusion-lower successor))
-               (incl-upper (alist-get 'inclusion-upper successor)))
-        (setq sum-incl-lower-expr (cons incl-lower sum-incl-lower-expr))
-        (setq sum-incl-upper-expr (cons incl-upper sum-incl-upper-expr)))
-      (when-let ((excl-lower (alist-get 'exclusion-lower successor))
-               (excl-upper (alist-get 'exclusion-upper successor)))
-        (setq sum-excl-lower-expr (cons excl-lower sum-excl-lower-expr))
-        (setq sum-excl-upper-expr (cons excl-upper sum-excl-upper-expr))))
-
-    (when sum-incl-lower-expr
-      (setq sum-incl-lower-expr (cons '+ sum-incl-lower-expr))
-      (setq sum-incl-upper-expr (cons '+ sum-incl-upper-expr))
-      )
-
-    (when sum-excl-lower-expr
-      (setq sum-excl-lower-expr (cons '+ sum-excl-lower-expr))
-      (setq sum-excl-upper-expr (cons '+ sum-excl-upper-expr))
-      )
-
-    (eval (list 'lambda '(power)
-                (when sum-incl-lower-expr
-                  `(and (<= ,sum-incl-lower-expr power ,sum-incl-upper-expr)
-                        (or (equal power 0.0)
-                            ,(when sum-excl-lower-expr
-                               `(or (<= power ,sum-excl-lower-expr)
-                                    (<= ,sum-excl-upper-expr power))))))))))
+  (let ((all-bounds (mapcar
+                     (lambda (successor) (alist-get 'bounds successor))
+                     successors)))
+    (eval `(lambda (power)
+             (bounds/contains-in-sum power ,@all-bounds)))))
 
 
 (defun set-power-active (id power)
@@ -195,6 +172,11 @@
         (funcall reset-power-func)
       (log.warn "No reset power function found for component id %d" id))))
 
+
+(defun augment-active-power-bounds (id create-ts bounds lifetime-secs)
+  (let* ((active-power-bounds-symbol (active-power-bounds-symbol-from-id id)))
+    (set active-power-bounds-symbol
+         (bounds/add (eval active-power-bounds-symbol) create-ts bounds lifetime-secs))))
 
 (defun component-data-maker (data-alist defaults-alist keys)
   (let ((data-alist (eval data-alist))

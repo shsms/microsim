@@ -6,7 +6,8 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::lisp::Config;
 
-use crate::proto::microgrid::v1alpha18::{
+use crate::proto::common::metrics::Metric;
+use crate::proto::microgrid::{
     AckElectricalComponentErrorRequest, AugmentElectricalComponentBoundsRequest,
     AugmentElectricalComponentBoundsResponse, GetMicrogridResponse,
     ListElectricalComponentConnectionsRequest, ListElectricalComponentConnectionsResponse,
@@ -20,8 +21,8 @@ use crate::proto::microgrid::v1alpha18::{
 };
 
 pub struct MicrogridServer {
-    pub config: Config,
-    pub timeout_tracker: crate::timeout_tracker::TimeoutTracker,
+    pub(crate) config: Config,
+    pub(crate) timeout_tracker: crate::timeout_tracker::TimeoutTracker,
 }
 
 impl MicrogridServer {
@@ -208,6 +209,46 @@ impl microgrid_server::Microgrid for MicrogridServer {
         ))
     }
 
+    async fn augment_electrical_component_bounds(
+        &self,
+        request: tonic::Request<AugmentElectricalComponentBoundsRequest>,
+    ) -> std::result::Result<tonic::Response<AugmentElectricalComponentBoundsResponse>, tonic::Status>
+    {
+        let request = request.into_inner();
+        let component_id = request.electrical_component_id;
+        let Ok(target_metric) = Metric::try_from(request.target_metric) else {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Invalid metric type: {}",
+                request.target_metric
+            )));
+        };
+
+        if target_metric != Metric::AcPowerActive {
+            return Err(tonic::Status::invalid_argument(format!(
+                "Unsupported metric type: {}. Only AC_POWER_ACTIVE is supported.",
+                request.target_metric
+            )));
+        }
+        let request_lifetime = request.request_lifetime.unwrap_or(5).max(5).min(15 * 60) as i64;
+        let expiry_time = self
+            .config
+            .augment_active_power_bounds(component_id, request.bounds, request_lifetime)
+            .map_err(|e| {
+                log::error!("Tulisp error:\n{}", e.format(&self.config.ctx.borrow()));
+                tonic::Status::failed_precondition(e.desc())
+            })?;
+
+        Ok(tonic::Response::new(
+            AugmentElectricalComponentBoundsResponse {
+                valid_until_time: expiry_time.map(|t| {
+                    let seconds = t.timestamp();
+                    let nanos = t.timestamp_subsec_nanos() as i32;
+                    prost_types::Timestamp { seconds, nanos }
+                }),
+            },
+        ))
+    }
+
     //
     //
     // Unused methods
@@ -223,13 +264,6 @@ impl microgrid_server::Microgrid for MicrogridServer {
         &self,
         _request: tonic::Request<ReceiveSensorTelemetryStreamRequest>,
     ) -> std::result::Result<tonic::Response<Self::ReceiveSensorTelemetryStreamStream>, tonic::Status>
-    {
-        todo!()
-    }
-    async fn augment_electrical_component_bounds(
-        &self,
-        _request: tonic::Request<AugmentElectricalComponentBoundsRequest>,
-    ) -> std::result::Result<tonic::Response<AugmentElectricalComponentBoundsResponse>, tonic::Status>
     {
         todo!()
     }

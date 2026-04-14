@@ -8,8 +8,7 @@
                         '(id soc soc-upper soc-lower
                           capacity power voltage type
                           component-state relay-state
-                          inclusion-lower inclusion-upper
-                          exclusion-lower exclusion-upper)))
+                          bounds)))
 
 (defun make-battery (&rest plist)
   (let* ((id (or (plist-get plist :id) (get-comp-id)))
@@ -34,38 +33,13 @@
                                     10.0))))
 
          (rated-bounds (or (alist-get 'rated-bounds config-alist) '(0.0 0.0)))
-         (excl-bounds (or (alist-get 'exclusion-bounds config-alist) '(0.0 0.0)))
-
          (rated-lower (car rated-bounds))
          (rated-upper (cadr rated-bounds))
 
-         (excl-lower (car excl-bounds))
-         (excl-upper (cadr excl-bounds))
-
-         (incl-lower-symbol (inclusion-lower-symbol-from-id id))
-         (incl-upper-symbol (inclusion-upper-symbol-from-id id))
+         (dc-power-bounds-symbol (active-power-bounds-symbol-from-id id))
 
          (soc-lower (alist-get 'soc-lower config-alist))
          (soc-upper (alist-get 'soc-upper config-alist))
-
-         (incl-lower-expr `(setq ,incl-lower-symbol
-                                 (if (< (- ,soc-symbol ,soc-lower) 10.0)
-                                     (* ,rated-lower
-                                        (bounded-exp-decay ,(+ soc-lower 10.0)
-                                                           ,soc-lower
-                                                           ,soc-symbol
-                                                           1.2
-                                                           0.3))
-                                     ,rated-lower)))
-         (incl-upper-expr `(setq ,incl-upper-symbol
-                                 (if (< (- ,soc-upper ,soc-symbol) 10.0)
-                                     (* ,rated-upper
-                                        (bounded-exp-decay ,(- soc-upper 10.0)
-                                                           ,soc-upper
-                                                           ,soc-symbol
-                                                           1.2
-                                                           0.3))
-                                     ,rated-upper)))
 
          (is-healthy (is-healthy-battery config-alist))
 
@@ -73,26 +47,26 @@
                        `((power . ,power-symbol)
                          (`component-state . (power->component-state ,power-symbol)))))
 
-         (soc-bounds-expr `((soc . ,soc-symbol)
-                            (inclusion-lower . ,incl-lower-symbol)
-                            (inclusion-upper . ,incl-upper-symbol)
-                            (exclusion-lower . ,excl-lower)
-                            (exclusion-upper . ,excl-upper)))
          (battery
           `((category . battery)
             (name     . ,(format "bat-%s" id))
             (id       . ,id)
             ,@power-expr
-            ,@soc-bounds-expr
+            (bounds . ,dc-power-bounds-symbol)
+            (rated-lower . ,rated-lower)
+            (rated-upper . ,rated-upper)
             (is-healthy . ,is-healthy)
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
                                 (macroexpand '(battery-data-maker
                                         `((id    . ,id)
-                                          ,@soc-bounds-expr
+                                          (soc . ,soc-symbol)
+                                          (bounds . ,dc-power-bounds-symbol)
                                           ,@power-expr)
                                         config-alist))))))))
+
+    (set dc-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
 
     (log.trace (format "Adding battery %s. Healthy: %s" id is-healthy))
 
@@ -101,6 +75,41 @@
       (set energy-symbol 0.0)
       (set soc-symbol (eval initial-soc)))
 
+    (every
+     :milliseconds interval
+     :call (eval
+            `(lambda ()
+               (setq ,dc-power-bounds-symbol
+                     (bounds/add-raw
+                      ;; current bounds with expired bounds removed
+                      (bounds/drop-expired ,dc-power-bounds-symbol)
+                      ;; create time
+                      (dt:now)
+                      ;; lower bound
+                      (if (< (- ,soc-symbol ,soc-lower) 10.0)
+                          (* ,rated-lower
+                             (bounded-exp-decay ,(+ soc-lower 10.0)
+                                                ,soc-lower
+                                                ,soc-symbol
+                                                1.2
+                                                0.3))
+                          ,rated-lower)
+                      ;; upper bound
+                      (if (< (- ,soc-upper ,soc-symbol) 10.0)
+                          (* ,rated-upper
+                             (bounded-exp-decay ,(- soc-upper 10.0)
+                                                ,soc-upper
+                                                ,soc-symbol
+                                                1.2
+                                                0.3))
+                          ,rated-upper)
+                      ;; lifetime
+                      (ceiling (min 1 (* 3 (/ interval 1000.0))))))
+
+               ;; ensure power is within bounds after soc update
+               (setq ,power-symbol
+                     (bounds/limit-power ,dc-power-bounds-symbol ,power-symbol)))))
+
     (setq state-update-functions
           (cons (eval (list 'lambda '(ms-since-last-call)
                             `(setq ,energy-symbol
@@ -108,17 +117,8 @@
                                       (* ,power-symbol
                                          (/ ms-since-last-call
                                             ,(* 60.0 60.0 1000.0)))))
-                            soc-expr
-                            incl-lower-expr
-                            incl-upper-expr
-                            `(cond ((< ,power-symbol ,incl-lower-symbol)
-                                    (setq ,power-symbol ,incl-lower-symbol))
-                                   ((> ,power-symbol ,incl-upper-symbol)
-                                    (setq ,power-symbol ,incl-upper-symbol)))))
+                            soc-expr))
                 state-update-functions))
-
-    (eval incl-lower-expr)
-    (eval incl-upper-expr)
 
     (add-to-components-alist battery)
 
@@ -132,8 +132,7 @@
   (component-data-maker data-alist
                         defaults-alist
                         '(id power current voltage component-state reactive-power
-                          per-phase-reactive-power per-phase-power inclusion-lower
-                          inclusion-upper)))
+                          per-phase-reactive-power per-phase-power bounds)))
 
 (defun make-battery-inverter (&rest plist)
   (let* ((id (or (plist-get plist :id) (get-comp-id)))
@@ -169,10 +168,9 @@
                                       ,reactive-power-symbol)))
                          (component-state . (power->component-state
                                              ,(make-power-expr successors))))))
-         (bounds-expr `((inclusion-lower . ,rated-lower)
-                        (inclusion-upper . ,rated-upper)))
          (bounds-check-func-symbol (bounds-check-func-symbol-from-id id))
          (reactive-bounds-check-func-symbol (reactive-bounds-check-func-symbol-from-id id))
+         (active-power-bounds-symbol (active-power-bounds-symbol-from-id id))
          (set-power-func-symbol (set-power-func-symbol-from-id id))
          (set-reactive-power-func-symbol (set-reactive-power-func-symbol-from-id id))
          (reset-power-func-symbol (reset-power-func-symbol-from-id id))
@@ -183,13 +181,14 @@
             (name     . ,(format "inv-bat-%s" id))
             (id       . ,id)
             ,@power-expr
-            ,@bounds-expr
+            (rated-lower . ,rated-lower)
+            (rated-upper . ,rated-upper)
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
                                 (macroexpand '(inverter-data-maker
                                         `((id . ,id)
-                                          ,@bounds-expr
+                                          (bounds . ,active-power-bounds-symbol)
                                           ,@power-expr)
                                         config-alist))))))))
 
@@ -213,9 +212,7 @@
              (eval (list 'lambda '(power)
                          `(and
                            (,(make-battery-bounds-check-expr successors) power)
-                           (<= ,rated-lower
-                               power
-                               ,rated-upper))))
+                           (bounds/contains ,active-power-bounds-symbol power))))
              (eval (list 'lambda '(power)
                          (log.error "inverter is unhealthy")
                          nil))))
@@ -246,9 +243,9 @@
                             )
                          expr)))
            (if (> num-batteries 0)
-               `(lambda (power)
-                  ,@expr)
-               '(lambda (power)
+               (eval `(lambda (power)
+                        ,@expr))
+               (lambda (power)
                   (log.error "Can't set power: no healthy batteries")
                   nil))))
 
@@ -264,6 +261,22 @@
              (lambda (reactive-power)
                (log.error "Can't set reactive power: inverter is unhealthy")
                nil)))
+
+    (set active-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
+
+    (when is-healthy
+      (every
+       :milliseconds 1000
+       :call `(lambda ()
+                (let ((measured-power ,(alist-get 'power power-expr))
+                      (active-power-bounds ,active-power-bounds-symbol))
+                  (set active-power-bounds-symbol
+                       (bounds/drop-expired active-power-bounds))
+                  (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
+                    (unless (equal limited-power measured-power)
+                      (log.debug (format "Limited power for inverter %s: %s W"
+                                         ,id limited-power))
+                      (,set-power-func-symbol limited-power)))))))
 
     (add-to-components-alist inverter)
     (connect-successors id successors)
@@ -281,6 +294,7 @@
          (power-symbol  (power-symbol-from-id id))
          (reactive-power-symbol (reactive-power-symbol-from-id id))
          (min-power-symbol (power-symbol-from-id (format "min-%s" id)))
+         (active-power-bounds-symbol (active-power-bounds-symbol-from-id id))
 
          (rated-bounds (or (alist-get 'rated-bounds config-alist) '(0.0 0.0)))
          (rated-lower (car rated-bounds))
@@ -312,16 +326,15 @@
             (type     . pv)
             (name     . ,(format "inv-pv-%s" id))
             (id       . ,id)
-            (inclusion-lower . ,rated-lower)
-            (inclusion-upper . ,rated-upper)
+            (rated-lower . ,rated-lower)
+            (rated-upper . ,rated-upper)
             ,@power-expr
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
                                 (macroexpand '(inverter-data-maker
                                         `((id . ,id)
-                                          (inclusion-lower . ,rated-lower)
-                                          (inclusion-upper . ,rated-upper)
+                                          (bounds . ,active-power-bounds-symbol)
                                           ,@power-expr)
                                         config-alist))))))))
 
@@ -336,7 +349,7 @@
     (set bounds-check-func-symbol
          (if is-healthy
              (list 'lambda '(power)
-                   `(<= ,rated-lower power ,rated-upper))
+                   `(bounds/contains ,active-power-bounds-symbol power))
              (list 'lambda '(power)
                    (log.error "inverter is unhealthy")
                    nil)))
@@ -357,35 +370,51 @@
 
     (set set-power-func-symbol
          (if is-healthy
-             `(lambda (power)
-                (let ((min-power ,(* rated-lower (/ sunlight% 100.0))))
-                  (setq ,min-power-symbol (max power min-power))
-                  (if (< power min-power)
-                      (progn
-                        (log.info
-                         (format "Given power %s W is not available for inverter %s.  Limiting to %s W."
-                                 power ,id min-power))
-                        (setq ,power-symbol min-power))
-                      (log.info (format "Setting power of inverter %s to %s W (was: %s W)"
-                                        ,id
-                                        power
-                                        ,(power-symbol-from-id id)))
-                      (setq ,power-symbol power))))
-           '(lambda (power)
-             (log.error "Can't set power: inverter is unhealthy")
-             nil)))
+             (eval `(lambda (power)
+                      (let ((min-power ,(* rated-lower (/ sunlight% 100.0))))
+                        (setq ,min-power-symbol (max power min-power))
+                        (if (< power min-power)
+                            (progn
+                              (log.info
+                               (format "Given power %s W is not available for inverter %s.  Limiting to %s W."
+                                       power ,id min-power))
+                              (setq ,power-symbol min-power))
+                            (log.info (format "Setting power of inverter %s to %s W (was: %s W)"
+                                              ,id
+                                              power
+                                              ,(power-symbol-from-id id)))
+                            (setq ,power-symbol power)))))
+             (lambda (power)
+               (log.error "Can't set power: inverter is unhealthy")
+               nil)))
 
     (set set-reactive-power-func-symbol
          (if is-healthy
-             `(lambda (reactive-power)
-                (log.info (format "Setting reactive power of inverter %s to %s VAR (was: %s VAR)"
-                                  ,id
-                                  reactive-power
-                                  ,reactive-power-symbol))
-                (setq ,reactive-power-symbol reactive-power))
-             '(lambda (reactive-power)
+             (eval `(lambda (reactive-power)
+                      (log.info (format "Setting reactive power of inverter %s to %s VAR (was: %s VAR)"
+                                        ,id
+                                        reactive-power
+                                        ,reactive-power-symbol))
+                      (setq ,reactive-power-symbol reactive-power)))
+             (lambda (reactive-power)
                (log.error "Can't set reactive power: inverter is unhealthy")
                nil)))
+
+    (set active-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
+
+    (when is-healthy
+      (every
+       :milliseconds 1000
+       :call `(lambda ()
+                (let ((measured-power ,(alist-get 'power power-expr))
+                      (active-power-bounds ,active-power-bounds-symbol))
+                  (set active-power-bounds-symbol
+                       (bounds/drop-expired active-power-bounds))
+                  (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
+                    (unless (equal limited-power measured-power)
+                      (log.debug (format "Limited power for inverter %s: %s W"
+                                         ,id limited-power))
+                      (,set-power-func-symbol limited-power)))))))
 
     (add-to-components-alist inverter)
     inverter))

@@ -1,5 +1,8 @@
+mod bounds;
 mod time;
 
+use crate::lisp::bounds::TulispComponentBounds;
+use chrono::{DateTime, TimeDelta, Utc};
 use rand::Rng;
 use std::{
     cell::{Cell, RefCell},
@@ -10,34 +13,38 @@ use std::{
     time::Duration,
 };
 
-use crate::proto::{
-    common::v1alpha8::{
-        grid::{DeliveryArea, EnergyMarketCodeType},
-        metrics::{
-            Bounds, Metric, MetricSample, MetricValueVariant, SimpleMetricValue,
-            metric_value_variant,
-        },
-        microgrid::{
-            MicrogridStatus,
-            electrical_components::{
-                Battery, BatteryType, ElectricalComponent, ElectricalComponentCategory,
-                ElectricalComponentCategorySpecificInfo, ElectricalComponentConnection,
-                ElectricalComponentStateCode, ElectricalComponentStateSnapshot,
-                ElectricalComponentTelemetry, EvCharger, EvChargerType, GridConnectionPoint,
-                Inverter, InverterType, MetricConfigBounds,
-                electrical_component_category_specific_info::Kind,
+use crate::{
+    lisp::bounds::VecBounds,
+    lisp::time::TulispDateTime,
+    proto::{
+        common::{
+            grid::{DeliveryArea, EnergyMarketCodeType},
+            metrics::{
+                Bounds, Metric, MetricSample, MetricValueVariant, SimpleMetricValue,
+                metric_value_variant,
+            },
+            microgrid::{
+                MicrogridStatus,
+                electrical_components::{
+                    Battery, BatteryType, ElectricalComponent, ElectricalComponentCategory,
+                    ElectricalComponentCategorySpecificInfo, ElectricalComponentConnection,
+                    ElectricalComponentStateCode, ElectricalComponentStateSnapshot,
+                    ElectricalComponentTelemetry, EvCharger, EvChargerType, GridConnectionPoint,
+                    Inverter, InverterType, MetricConfigBounds,
+                    electrical_component_category_specific_info::Kind,
+                },
             },
         },
-    },
-    microgrid::v1alpha18::{
-        GetMicrogridResponse, ListElectricalComponentConnectionsRequest,
-        ListElectricalComponentConnectionsResponse, ListElectricalComponentsRequest,
-        ListElectricalComponentsResponse, ReceiveElectricalComponentTelemetryStreamResponse,
+        microgrid::{
+            GetMicrogridResponse, ListElectricalComponentConnectionsRequest,
+            ListElectricalComponentConnectionsResponse, ListElectricalComponentsRequest,
+            ListElectricalComponentsResponse, ReceiveElectricalComponentTelemetryStreamResponse,
+        },
     },
 };
 use notify::{RecommendedWatcher, Watcher};
 use prost_types::Timestamp;
-use tulisp::{Error, TulispContext, TulispObject, intern, list};
+use tulisp::{Error, TulispContext, TulispConvertible, TulispObject, intern, list};
 
 type CompDataMaker = fn(
     &mut TulispContext,
@@ -58,6 +65,7 @@ intern! {
         type_: "type",
         status: "status",
         stream: "stream",
+        bounds: "bounds",
         voltage: "voltage",
         current: "current",
         category: "category",
@@ -75,6 +83,8 @@ intern! {
         set_power_reactive: "set-power-reactive",
         enterprise_id: "enterprise-id",
         microgrid_id: "microgrid-id",
+        rated_lower: "rated-lower",
+        rated_upper: "rated-upper",
         delivery_area: "delivery-area",
         inclusion_lower: "inclusion-lower",
         inclusion_upper: "inclusion-upper",
@@ -89,6 +99,7 @@ intern! {
         reset_power_active: "reset-power-active",
         state_update_functions: "state-update-functions",
         per_phase_reactive_power: "per-phase-reactive-power",
+        augment_active_power_bounds: "augment-active-power-bounds",
         retain_requests_duration_ms: "retain-requests-duration-ms",
     }
 }
@@ -218,11 +229,11 @@ fn make_component_from_alist(
         _ => None,
     };
 
-    let inclusion_lower = alist_get_f32!(ctx, &alist, &symbols.inclusion_lower);
-    let inclusion_upper = alist_get_f32!(ctx, &alist, &symbols.inclusion_upper);
+    let rated_lower = alist_get_f32!(ctx, &alist, &symbols.rated_lower);
+    let rated_upper = alist_get_f32!(ctx, &alist, &symbols.rated_upper);
 
     // Copy active bounds to reactive bounds.
-    let reactive_upper = inclusion_lower.abs().max(inclusion_upper.abs());
+    let reactive_upper = rated_lower.abs().max(rated_upper.abs());
     let reactive_lower = -reactive_upper;
 
     let comp = ElectricalComponent {
@@ -233,22 +244,32 @@ fn make_component_from_alist(
         category_specific_info: Some(ElectricalComponentCategorySpecificInfo { kind }),
         // status: todo!(),  // TODO: Add status
         // operational_lifetime: todo!(),
-        metric_config_bounds: vec![
-            MetricConfigBounds {
-                metric: Metric::AcPowerActive as i32,
+        metric_config_bounds: if category == ElectricalComponentCategory::Battery {
+            vec![MetricConfigBounds {
+                metric: Metric::DcPower as i32,
                 config_bounds: Some(Bounds {
-                    lower: Some(inclusion_lower),
-                    upper: Some(inclusion_upper),
+                    lower: Some(rated_lower),
+                    upper: Some(rated_upper),
                 }),
-            },
-            MetricConfigBounds {
-                metric: Metric::AcPowerReactive as i32,
-                config_bounds: Some(Bounds {
-                    lower: Some(reactive_lower),
-                    upper: Some(reactive_upper),
-                }),
-            },
-        ],
+            }]
+        } else {
+            vec![
+                MetricConfigBounds {
+                    metric: Metric::AcPowerActive as i32,
+                    config_bounds: Some(Bounds {
+                        lower: Some(rated_lower),
+                        upper: Some(rated_upper),
+                    }),
+                },
+                MetricConfigBounds {
+                    metric: Metric::AcPowerReactive as i32,
+                    config_bounds: Some(Bounds {
+                        lower: Some(reactive_lower),
+                        upper: Some(reactive_upper),
+                    }),
+                },
+            ]
+        },
         ..Default::default()
     };
 
@@ -284,6 +305,22 @@ impl Config {
             default_request_duration: Cell::new(None),
             symbols,
         }
+    }
+
+    pub fn tags_table(filename: &str) -> Result<String, Error> {
+        let mut ctx = tulisp::TulispContext::new();
+        add_functions(&mut ctx);
+
+        let config_path = Path::new(filename);
+        log::debug!("Using config path: {}", config_path.display());
+
+        if let Some(p) = config_path.parent() {
+            log::debug!("Using load path: {}", p.display());
+            ctx.set_load_path(Some(p))
+                .unwrap_or_else(|e| panic!("set_load_path({}): {:?}", config_path.display(), e));
+        }
+
+        ctx.tags_table(Some(&[filename]))
     }
 
     pub fn reload(&self) {
@@ -468,7 +505,7 @@ Invalid socket-addr.  Add a config line in this format:
         let location = if let Ok(location) =
             alist_get_as!(&mut self.ctx.borrow_mut(), &alist, &self.symbols.location)
         {
-            Some(crate::proto::common::v1alpha8::types::Location {
+            Some(crate::proto::common::types::Location {
                 latitude: location.car()?.as_float().unwrap_or_default() as f32,
                 longitude: location.cadr()?.as_float().unwrap_or_default() as f32,
                 country_code: location.caddr()?.as_string().unwrap_or_default(),
@@ -499,7 +536,7 @@ Invalid socket-addr.  Add a config line in this format:
         };
 
         Ok(GetMicrogridResponse {
-            microgrid: Some(crate::proto::common::v1alpha8::microgrid::Microgrid {
+            microgrid: Some(crate::proto::common::microgrid::Microgrid {
                 id: microgrid_id,
                 enterprise_id,
                 name: format!("Microgrid {}", microgrid_id),
@@ -605,6 +642,40 @@ Invalid socket-addr.  Add a config line in this format:
             .inspect_err(|e| log::error!("Tulisp error:\n{}", e.format(&self.ctx.borrow())))
     }
 
+    pub fn augment_active_power_bounds(
+        &self,
+        component_id: u64,
+        bounds: Vec<Bounds>,
+        request_lifetime_s: i64,
+    ) -> Result<Option<DateTime<Utc>>, Error> {
+        if bounds.is_empty() {
+            return Ok(None);
+        }
+
+        if bounds.len() > 1 {
+            return Err(Error::invalid_argument(format!(
+                "Only one phase is supported for bounds augmentation, but got {}",
+                bounds.len()
+            )));
+        }
+
+        let create_time = TulispDateTime::now();
+
+        self.ctx.borrow_mut().funcall(
+            &self.symbols.augment_active_power_bounds,
+            &list![
+                ,(component_id as i64).into_tulisp()
+                ,create_time.into_tulisp()
+                ,VecBounds::new(bounds).into_tulisp()
+                ,request_lifetime_s.into_tulisp()
+            ]?,
+        )?;
+
+        let expiry_time = *create_time + TimeDelta::seconds(request_lifetime_s);
+
+        Ok(Some(expiry_time))
+    }
+
     fn get_conv_function(&self, component_id: u64, comp: &TulispObject) -> CompDataMaker {
         match make_component_from_alist(&mut self.ctx.borrow_mut(), &comp, &self.symbols)
             .unwrap()
@@ -702,10 +773,9 @@ impl Config {
         let current = alist_get_f32!(ctx, &alist, &symbols.current);
         let power = alist_get_f32!(ctx, &alist, &symbols.power);
 
-        let inclusion_lower = alist_get_f32!(ctx, &alist, &symbols.inclusion_lower);
-        let inclusion_upper = alist_get_f32!(ctx, &alist, &symbols.inclusion_upper);
-        let exclusion_lower = alist_get_f32!(ctx, &alist, &symbols.exclusion_lower);
-        let exclusion_upper = alist_get_f32!(ctx, &alist, &symbols.exclusion_upper);
+        let bounds: TulispComponentBounds = TulispConvertible::from_tulisp(
+            &alist_get_as!(ctx, &alist, &symbols.bounds).and_then(|x| ctx.eval(&x))?,
+        )?;
 
         let component_state = enum_from_alist::<ElectricalComponentStateCode>(
             ctx,
@@ -790,23 +860,7 @@ impl Config {
                                 ),
                             ),
                         }),
-                        bounds: if exclusion_lower == 0.0 && exclusion_upper == 0.0 {
-                            vec![Bounds {
-                                lower: Some(inclusion_lower),
-                                upper: Some(inclusion_upper),
-                            }]
-                        } else {
-                            vec![
-                                Bounds {
-                                    lower: Some(inclusion_lower),
-                                    upper: Some(exclusion_lower),
-                                },
-                                Bounds {
-                                    lower: Some(exclusion_upper),
-                                    upper: Some(inclusion_upper),
-                                },
-                            ]
-                        },
+                        bounds: bounds.squash().0,
                         ..Default::default() // TODO: Add bounds and states
                     },
                 ],
@@ -839,10 +893,10 @@ impl Config {
             alist_get_3_phase!(ctx, &alist, &symbols.per_phase_reactive_power);
         let reactive_power = alist_get_f32!(ctx, &alist, &symbols.reactive_power);
 
-        let inclusion_lower = alist_get_f32!(ctx, &alist, &symbols.inclusion_lower);
-        let inclusion_upper = alist_get_f32!(ctx, &alist, &symbols.inclusion_upper);
-        let exclusion_lower = alist_get_f32!(ctx, &alist, &symbols.exclusion_lower);
-        let exclusion_upper = alist_get_f32!(ctx, &alist, &symbols.exclusion_upper);
+        let bounds: Option<TulispComponentBounds> = TulispConvertible::from_tulisp(
+            &alist_get_as!(ctx, &alist, &symbols.bounds).and_then(|x| ctx.eval(&x))?,
+        )
+        .ok();
 
         Ok(vec![
             MetricSample {
@@ -1023,23 +1077,7 @@ impl Config {
                         }),
                     ),
                 }),
-                bounds: if exclusion_lower == 0.0 && exclusion_upper == 0.0 {
-                    vec![Bounds {
-                        lower: Some(inclusion_lower),
-                        upper: Some(inclusion_upper),
-                    }]
-                } else {
-                    vec![
-                        Bounds {
-                            lower: Some(inclusion_lower),
-                            upper: Some(exclusion_lower),
-                        },
-                        Bounds {
-                            lower: Some(exclusion_upper),
-                            upper: Some(inclusion_upper),
-                        },
-                    ]
-                },
+                bounds: bounds.map(|b| b.squash().0).unwrap_or_default(),
                 ..Default::default()
             },
         ])
@@ -1153,6 +1191,8 @@ fn add_functions(ctx: &mut TulispContext) {
         .add_function("log.error", |msg: String| log::error!("{msg}"))
         .add_function("log.debug", |msg: String| log::debug!("{msg}"))
         .add_function("log.trace", |msg: String| log::trace!("{msg}"))
+        .add_function("ceiling", |n: f64| n.ceil() as i64)
+        .add_function("floor", |n: f64| n.floor() as i64)
         .add_function("random", |limit: Option<i64>| {
             if let Some(limit) = limit {
                 rand::thread_rng().gen_range(0..limit)
@@ -1162,4 +1202,5 @@ fn add_functions(ctx: &mut TulispContext) {
         });
 
     crate::lisp::time::add(ctx);
+    crate::lisp::bounds::add(ctx);
 }

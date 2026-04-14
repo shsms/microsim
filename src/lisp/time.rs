@@ -1,9 +1,9 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Deref};
 
-use tulisp::{Error, Shared, TulispContext, TulispObject};
+use tulisp::{Error, Shared, TulispContext, TulispConvertible, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("dt:now", || TulispDateTime::from(chrono::Utc::now()));
+    ctx.add_function("dt:now", || TulispDateTime::now());
     ctx.add_function("dt:minutes", |minutes: i64| {
         TulispTimeDelta::from(chrono::Duration::minutes(minutes))
     });
@@ -17,7 +17,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
             match (a, b) {
                 (DateTimeTimeDelta::DateTime(dt), DateTimeTimeDelta::TimeDelta(td))
                 | (DateTimeTimeDelta::TimeDelta(td), DateTimeTimeDelta::DateTime(dt)) => {
-                    Ok(TulispDateTime(dt.0 + td.0).into())
+                    Ok(TulispDateTime(dt.0 + td.0).into_tulisp())
                 }
                 _ => Err(Error::type_mismatch(
                     "dt+: Expected TulispDateTime + TulispTimeDelta".to_string(),
@@ -27,18 +27,18 @@ pub(crate) fn add(ctx: &mut TulispContext) {
     );
 
     ctx.add_function(
-        "dt-",
-        |a: DateTimeTimeDelta, b: DateTimeTimeDelta| -> Result<TulispObject, Error> {
-            match (a, b) {
-                (DateTimeTimeDelta::DateTime(dt), DateTimeTimeDelta::TimeDelta(td)) => {
-                    Ok(TulispDateTime(dt.0 - td.0).into())
+            "dt-",
+            |a: DateTimeTimeDelta, b: DateTimeTimeDelta| -> Result<TulispObject, Error> {
+                match (a, b) {
+                    (DateTimeTimeDelta::DateTime(dt), DateTimeTimeDelta::TimeDelta(td)) => {
+                        Ok(TulispDateTime(dt.0 - td.0).into_tulisp())
                 }
-                (DateTimeTimeDelta::DateTime(dt1), DateTimeTimeDelta::DateTime(dt2)) => {
-                    Ok(TulispTimeDelta(dt1.0 - dt2.0).into())
+                    (DateTimeTimeDelta::DateTime(dt1), DateTimeTimeDelta::DateTime(dt2)) => {
+                        Ok(TulispTimeDelta(dt1.0 - dt2.0).into_tulisp())
                 }
-                _ => Err(Error::type_mismatch(
-                    "dt-: Expected TulispDateTime - TulispTimeDelta or TulispDateTime - TulispDateTime"
-                        .to_string(),
+                    _ => Err(Error::type_mismatch(
+                        "dt-: Expected TulispDateTime - TulispTimeDelta or TulispDateTime - TulispDateTime"
+                            .to_string(),
                 )),
             }
         },
@@ -62,18 +62,34 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         "dt:epoch-align",
         |timestamp: TulispDateTime, interval: TulispTimeDelta| -> TulispObject {
             epoch_align(timestamp.0, interval.0)
-                .map(|dt| TulispDateTime(dt).into())
+                .map(|dt| TulispDateTime(dt).into_tulisp())
                 .unwrap_or_else(|| false.into())
         },
     );
 }
 
-#[derive(Debug, Clone)]
-struct TulispDateTime(chrono::DateTime<chrono::Utc>);
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TulispDateTime(chrono::DateTime<chrono::Utc>);
 
 impl Display for TulispDateTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#<dt:{}>", self.0.to_rfc3339())
+    }
+}
+
+impl TulispConvertible for TulispDateTime {
+    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
+        match value.as_any() {
+            Ok(value) => match value.downcast_ref::<TulispDateTime>() {
+                Some(v) => Ok(v.clone()),
+                None => Err(Error::type_mismatch("Expected TulispDateTime".to_string())),
+            },
+            Err(_) => Err(Error::type_mismatch("Expected TulispDateTime".to_string())),
+        }
+    }
+
+    fn into_tulisp(self) -> TulispObject {
+        Shared::new(self).into()
     }
 }
 
@@ -83,9 +99,11 @@ impl From<chrono::DateTime<chrono::Utc>> for TulispDateTime {
     }
 }
 
-impl From<TulispDateTime> for TulispObject {
-    fn from(value: TulispDateTime) -> Self {
-        Shared::new(value).into()
+impl Deref for TulispDateTime {
+    type Target = chrono::DateTime<chrono::Utc>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -103,8 +121,14 @@ impl TryFrom<TulispObject> for TulispDateTime {
     }
 }
 
+impl TulispDateTime {
+    pub fn now() -> Self {
+        TulispDateTime(chrono::Utc::now())
+    }
+}
+
 #[derive(Debug, Clone)]
-struct TulispTimeDelta(chrono::TimeDelta);
+pub(crate) struct TulispTimeDelta(chrono::TimeDelta);
 
 impl Display for TulispTimeDelta {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -118,23 +142,23 @@ impl From<chrono::TimeDelta> for TulispTimeDelta {
     }
 }
 
-impl From<TulispTimeDelta> for TulispObject {
-    fn from(value: TulispTimeDelta) -> Self {
-        Shared::new(value).into()
-    }
-}
-
-impl TryFrom<TulispObject> for TulispTimeDelta {
-    type Error = Error;
-
-    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
+impl TulispConvertible for TulispTimeDelta {
+    fn from_tulisp(value: &TulispObject) -> Result<Self, Error> {
         match value.as_any() {
             Ok(value) => match value.downcast_ref::<TulispTimeDelta>() {
                 Some(v) => Ok(v.clone()),
-                None => Err(Error::type_mismatch("Expected TulispTimeDelta".to_string())),
+                None => Err(Error::type_mismatch(format!(
+                    "Expected TulispTimeDelta, got: {value}"
+                ))),
             },
-            Err(_) => Err(Error::type_mismatch("Expected TulispTimeDelta".to_string())),
+            Err(_) => Err(Error::type_mismatch(format!(
+                "Expected TulispTimeDelta, got: {value}"
+            ))),
         }
+    }
+
+    fn into_tulisp(self) -> TulispObject {
+        Shared::new(self).into()
     }
 }
 
@@ -144,18 +168,26 @@ enum DateTimeTimeDelta {
     TimeDelta(TulispTimeDelta),
 }
 
-impl TryFrom<TulispObject> for DateTimeTimeDelta {
-    type Error = Error;
-
-    fn try_from(value: TulispObject) -> Result<Self, Self::Error> {
-        if let Ok(dt) = TulispDateTime::try_from(value.clone()) {
+impl TulispConvertible for DateTimeTimeDelta {
+    fn from_tulisp(value: &TulispObject) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        if let Ok(dt) = TulispConvertible::from_tulisp(&value) {
             Ok(DateTimeTimeDelta::DateTime(dt))
-        } else if let Ok(td) = TulispTimeDelta::try_from(value.clone()) {
+        } else if let Ok(td) = TulispConvertible::from_tulisp(&value) {
             Ok(DateTimeTimeDelta::TimeDelta(td))
         } else {
-            Err(Error::type_mismatch(
-                "Expected TulispDateTime or TulispTimeDelta".to_string(),
-            ))
+            Err(Error::type_mismatch(format!(
+                "Expected TulispDateTime or TulispTimeDelta, got: {value}"
+            )))
+        }
+    }
+
+    fn into_tulisp(self) -> TulispObject {
+        match self {
+            DateTimeTimeDelta::DateTime(dt) => dt.into_tulisp(),
+            DateTimeTimeDelta::TimeDelta(td) => td.into_tulisp(),
         }
     }
 }

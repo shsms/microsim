@@ -1,18 +1,16 @@
 fn main() -> Result<(), std::io::Error> {
-    let config = prost_build::Config::new();
-
-    tonic_build::configure()
-        .compile_with_config(
-            config,
-            &["submodules/frequenz-api-microgrid/proto/frequenz/api/microgrid/v1alpha18/microgrid.proto"],
+    tonic_prost_build::configure()
+        .disable_comments(&["."])
+        .include_file("proto_v1_alpha18.rs")
+        .compile_well_known_types(false)
+        .compile_protos(             &["submodules/frequenz-api-microgrid/proto/frequenz/api/microgrid/v1alpha18/microgrid.proto"],
             &[
                 "submodules/frequenz-api-microgrid/proto",
                 "submodules/frequenz-api-microgrid/submodules/frequenz-api-common/proto",
                 "submodules/frequenz-api-microgrid/submodules/api-common-protos",
             ],
-        )
-        .map_err(|e| {
+    )
+        .inspect_err(|e| {
             eprintln!("Could not compile protobuf files. Error: {:?}", e);
-            e
         })
 }
