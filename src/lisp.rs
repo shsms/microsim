@@ -3,7 +3,7 @@ mod time;
 
 use crate::lisp::bounds::TulispComponentBounds;
 use chrono::{DateTime, TimeDelta, Utc};
-use rand::Rng;
+use rand::RngExt as _;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -1193,12 +1193,9 @@ fn add_functions(ctx: &mut TulispContext) {
         .add_function("log.trace", |msg: String| log::trace!("{msg}"))
         .add_function("ceiling", |n: f64| n.ceil() as i64)
         .add_function("floor", |n: f64| n.floor() as i64)
-        .add_function("random", |limit: Option<i64>| {
-            if let Some(limit) = limit {
-                rand::thread_rng().gen_range(0..limit)
-            } else {
-                rand::thread_rng().r#gen()
-            }
+        .add_function("random", |limit: Option<i64>| match limit {
+            Some(limit) => rand::rng().random_range(0..limit),
+            None => rand::rng().random(),
         });
 
     crate::lisp::time::add(ctx);
