@@ -6,7 +6,7 @@ use tulisp::{Error, Rest, Shared, TulispConvertible, TulispObject};
 use crate::{lisp::time::TulispDateTime, proto::common::v1alpha8::metrics::Bounds};
 
 pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
-    ctx.add_function(
+    ctx.defun(
         "bounds/add",
         |mut bounds: TulispComponentBounds,
          create_ts: TulispDateTime,
@@ -19,7 +19,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "bounds/add-raw",
         |mut bounds: TulispComponentBounds,
          create_ts: TulispDateTime,
@@ -38,7 +38,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "bounds/make-container",
         |rated_lower: f64, rated_upper: f64| {
             TulispComponentBounds::new(VecBounds::new(vec![Bounds {
@@ -48,7 +48,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "bounds/drop-expired",
         |mut bounds: TulispComponentBounds| -> TulispComponentBounds {
             let now = TulispDateTime::now();
@@ -63,14 +63,14 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "bounds/contains",
         |bounds: TulispComponentBounds, value: f64| -> bool {
             bounds.squash().contains(value as f32)
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "bounds/contains-in-sum",
         |value: f64, bounds_list: Rest<TulispComponentBounds>| -> bool {
             let total_bounds = bounds_list
@@ -80,7 +80,7 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "bounds/limit-power",
         |bounds: TulispComponentBounds, measured_power: f64| -> f64 {
             bounds.squash().limit_power(measured_power)
