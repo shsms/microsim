@@ -3,15 +3,15 @@ use std::{fmt::Display, ops::Deref};
 use tulisp::{Error, Shared, TulispContext, TulispConvertible, TulispObject};
 
 pub(crate) fn add(ctx: &mut TulispContext) {
-    ctx.add_function("dt:now", || TulispDateTime::now());
-    ctx.add_function("dt:minutes", |minutes: i64| {
+    ctx.defun("dt:now", || TulispDateTime::now());
+    ctx.defun("dt:minutes", |minutes: i64| {
         TulispTimeDelta::from(chrono::Duration::minutes(minutes))
     });
-    ctx.add_function("dt:milliseconds", |milliseconds: i64| {
+    ctx.defun("dt:milliseconds", |milliseconds: i64| {
         TulispTimeDelta::from(chrono::Duration::milliseconds(milliseconds))
     });
 
-    ctx.add_function(
+    ctx.defun(
         "dt+",
         |a: DateTimeTimeDelta, b: DateTimeTimeDelta| -> Result<TulispObject, Error> {
             match (a, b) {
@@ -26,7 +26,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
             "dt-",
             |a: DateTimeTimeDelta, b: DateTimeTimeDelta| -> Result<TulispObject, Error> {
                 match (a, b) {
@@ -44,7 +44,7 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.add_function(
+    ctx.defun(
         "dt:format",
         |timestamp: TulispDateTime, format: Option<String>| -> Result<String, Error> {
             Ok(timestamp
@@ -54,11 +54,11 @@ pub(crate) fn add(ctx: &mut TulispContext) {
         },
     );
 
-    ctx.add_function("dt:dur->milliseconds", |delta: TulispTimeDelta| -> i64 {
+    ctx.defun("dt:dur->milliseconds", |delta: TulispTimeDelta| -> i64 {
         delta.0.num_milliseconds()
     });
 
-    ctx.add_function(
+    ctx.defun(
         "dt:epoch-align",
         |timestamp: TulispDateTime, interval: TulispTimeDelta| -> TulispObject {
             epoch_align(timestamp.0, interval.0)

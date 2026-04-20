@@ -1186,14 +1186,14 @@ impl Config {
 }
 
 fn add_functions(ctx: &mut TulispContext) {
-    ctx.add_function("log.info", |msg: String| log::info!("{msg}"))
-        .add_function("log.warn", |msg: String| log::warn!("{msg}"))
-        .add_function("log.error", |msg: String| log::error!("{msg}"))
-        .add_function("log.debug", |msg: String| log::debug!("{msg}"))
-        .add_function("log.trace", |msg: String| log::trace!("{msg}"))
-        .add_function("ceiling", |n: f64| n.ceil() as i64)
-        .add_function("floor", |n: f64| n.floor() as i64)
-        .add_function("random", |limit: Option<i64>| match limit {
+    ctx.defun("log.info", |msg: String| log::info!("{msg}"))
+        .defun("log.warn", |msg: String| log::warn!("{msg}"))
+        .defun("log.error", |msg: String| log::error!("{msg}"))
+        .defun("log.debug", |msg: String| log::debug!("{msg}"))
+        .defun("log.trace", |msg: String| log::trace!("{msg}"))
+        .defun("ceiling", |n: f64| n.ceil() as i64)
+        .defun("floor", |n: f64| n.floor() as i64)
+        .defun("random", |limit: Option<i64>| match limit {
             Some(limit) => rand::rng().random_range(0..limit),
             None => rand::rng().random(),
         });
