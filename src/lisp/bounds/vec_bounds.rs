@@ -256,7 +256,7 @@ mod tests {
 
         let vb2 = VecBounds::new(vec![Bounds::new(Some(-5.0), Some(5.0))]);
         let intersection = vb1.intersect(&vb2);
-        assert_eq!(intersection.0, vec![]);
+        assert_eq!(intersection.0, Vec::<Bounds>::new());
     }
 
     #[test]

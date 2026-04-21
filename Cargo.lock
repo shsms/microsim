@@ -1392,9 +1392,9 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tulisp"
-version = "0.27.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf29d10d0bfcb83b78a76d9796fb2df3461192d8ecfe5cdb4e5ab2b69f1b2de2"
+checksum = "1ff5d17577d63c3716785b6242e8fbfaec95f704aa8b68488ee593dffc8b3027"
 
 [[package]]
 name = "unicase"
