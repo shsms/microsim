@@ -12,11 +12,17 @@ pub(crate) struct TulispComponentBounds {
 
 impl std::fmt::Display for TulispComponentBounds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "#<rated-bounds: {}, component-bounds: {:?}>",
-            self.rated_bounds, self.augmented
-        )
+        let squashed = self.squash();
+        if self.augmented.is_empty() {
+            write!(f, "{squashed}")
+        } else {
+            write!(
+                f,
+                "{squashed} (rated {}, +{} augmented)",
+                self.rated_bounds,
+                self.augmented.len()
+            )
+        }
     }
 }
 

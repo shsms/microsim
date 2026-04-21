@@ -7,7 +7,18 @@ pub(crate) struct VecBounds(pub(crate) Vec<Bounds>);
 
 impl std::fmt::Display for VecBounds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#<bounds: {:?}>", self.0)
+        if self.0.is_empty() {
+            return write!(f, "[]");
+        }
+        let mut first = true;
+        for b in &self.0 {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            write!(f, "{b}")?;
+        }
+        Ok(())
     }
 }
 

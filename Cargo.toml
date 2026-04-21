@@ -11,7 +11,8 @@ prost = "0.14.0"
 prost-types = "0.14.0"
 tokio = { version = "1.43.1", features = ["rt", "macros"] }
 tokio-stream = "0.1.15"
-tulisp = { version = "0.28.0", features = ["etags"] }
+tulisp = { git = "https://github.com/shsms/tulisp", features = ["etags"] }
+tulisp-ratatui = { git = "https://github.com/tulisp/tulisp-ratatui" }
 notify = "6.1.1"
 futures = "0.3.30"
 log = "0.4.22"

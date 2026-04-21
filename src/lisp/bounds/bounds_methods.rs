@@ -1,5 +1,14 @@
 use crate::proto::common::metrics::Bounds;
 
+impl std::fmt::Display for Bounds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn side(b: Option<f32>) -> String {
+            b.map(|v| format!("{v}")).unwrap_or_else(|| "*".into())
+        }
+        write!(f, "[{}, {}]", side(self.lower), side(self.upper))
+    }
+}
+
 impl Bounds {
     pub fn new(lower: Option<f32>, upper: Option<f32>) -> Self {
         Bounds { lower, upper }

@@ -3,12 +3,16 @@
 ;; Changes can be made to the simulation by making changes to this
 ;; file and saving it, and the changes will take effect immediately.
 ;;
-;; The simulator implementation doesn't have to be reloaded every time
-;; we make a change to the simulation config.
-(unless (boundp 'simulator-loaded)
-  (setq simulator-loaded t)
+;; Runtime code (simulator + TUI) loads once. Config-only changes don't
+;; need it reloaded; and reloading sim/tui.lisp mid-session would wipe live
+;; TUI state (selection, terminal handle).
+(unless (boundp 'microsim-loaded)
+  (setq microsim-loaded t)
   (load "sim/common.lisp")
-  (load "sim/components.lisp"))
+  (load "sim/components.lisp")
+  ;; tui.lisp only registers functions/vars; nothing is drawn until the
+  ;; binary (with --tui) starts calling (tui/frame).
+  (load "sim/tui.lisp"))
 
 ;; But the state of the simulator needs to be reset every time this
 ;; file is being reloaded.

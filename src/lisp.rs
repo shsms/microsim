@@ -446,6 +446,33 @@ Invalid socket-addr.  Add a config line in this format:
         }
     }
 
+    pub fn register_log_buffer(&self, buffer: crate::tui_log::LogBuffer) {
+        self.ctx.borrow_mut().defun("tui/log-lines", move || {
+            Ok::<_, Error>(buffer.lines())
+        });
+    }
+
+    pub async fn run_tui(&self) -> Result<(), Error> {
+        let frame_fn = self.ctx.borrow_mut().intern("tui/frame");
+        let args = TulispObject::nil();
+
+        let result = loop {
+            let res = self.ctx.borrow_mut().funcall(&frame_fn, &args);
+            match res {
+                Ok(v) if !v.null() => break Ok(()),
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("tui error: {}", e.format(&self.ctx.borrow()));
+                    break Err(e);
+                }
+            }
+            tokio::task::yield_now().await;
+        };
+
+        tulisp_ratatui::restore();
+        result
+    }
+
     pub fn retain_requests_duration(&self) -> Duration {
         if let Some(dur) = self.default_request_duration.get() {
             return dur;
@@ -1203,4 +1230,5 @@ fn add_functions(ctx: &mut TulispContext) {
 
     crate::lisp::time::add(ctx);
     crate::lisp::bounds::add(ctx);
+    tulisp_ratatui::register(ctx);
 }

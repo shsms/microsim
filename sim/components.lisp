@@ -181,6 +181,7 @@
             (name     . ,(format "inv-bat-%s" id))
             (id       . ,id)
             ,@power-expr
+            (bounds . ,active-power-bounds-symbol)
             (rated-lower . ,rated-lower)
             (rated-upper . ,rated-upper)
             (stream   . ,(list
@@ -326,6 +327,7 @@
             (type     . pv)
             (name     . ,(format "inv-pv-%s" id))
             (id       . ,id)
+            (bounds . ,active-power-bounds-symbol)
             (rated-lower . ,rated-lower)
             (rated-upper . ,rated-upper)
             ,@power-expr
