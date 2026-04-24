@@ -13,6 +13,8 @@
   (setq active-timers nil)
   (setq metadata nil))
 
+(defun identity (x) x)
+
 (defun get-comp-id ()
   (setq comp--id--counter (+ comp--id--counter 1)))
 
@@ -87,57 +89,63 @@
       (add-to-connections-alist id (alist-get 'id successor)))))
 
 
-(defun make-power-expr (successors)
-  (let ((expr ()))
-    (dolist (successor successors)
-      (if-let ((power (alist-get 'power successor)))
-          (setq expr (cons power expr))))
-    (when expr (cons '+ expr))))
+(defun sum-symbol-values (syms)
+  (let ((total 0.0))
+    (dolist (sym syms)
+      (setq total (+ total (symbol-value sym))))
+    total))
+
+;; `(mapcar 'symbol-value …)` double-evaluates under the current
+;; defspecial/defun wrapper (the element is a symbol; the wrapper
+;; evaluates it again, producing the symbol's value, which is then
+;; passed to symbol-value). Use this helper in hot paths instead.
+(defun symbol-values (syms)
+  (let ((result nil))
+    (dolist (sym syms)
+      (setq result (cons (symbol-value sym) result)))
+    (reverse result)))
+
+;; Returns a 0-arg closure summing successors' current power via their
+;; `'power-symbol` entries, or nil if none of them expose one.
+(defun make-power-fn (successors)
+  (let ((syms (seq-filter 'identity
+                          (mapcar (lambda (s) (alist-get 'power-symbol s)) successors))))
+    (when syms
+      (lambda () (sum-symbol-values syms)))))
 
 
-(defun make-per-phase-power-expr (successors &optional alist-key)
-  (let ((p1-expr ())
-        (p2-expr ())
-        (p3-expr ())
-        (alist-key (or alist-key 'per-phase-power)))
-    (dolist (successor successors)
-      (when-let ((per-phase-power (alist-get alist-key successor)))
-        (setq p1-expr (cons `(car ,per-phase-power) p1-expr))
-        (setq p2-expr (cons `(cadr ,per-phase-power) p2-expr))
-        (setq p3-expr (cons `(caddr ,per-phase-power) p3-expr))))
-    (when p1-expr
-      (setq p1-expr (cons '+ p1-expr))
-      (setq p2-expr (cons '+ p2-expr))
-      (setq p3-expr (cons '+ p3-expr))
-      (list 'list p1-expr p2-expr p3-expr))))
+;; Given successors that expose a `'data-fn`, returns a 0-arg closure
+;; returning the elementwise sum (a 3-element list) of their ALIST-KEY
+;; field (defaulting to `per-phase-power`). Each successor is queried
+;; at call time.
+(defun make-per-phase-fn (successors &optional alist-key)
+  (let ((alist-key (or alist-key 'per-phase-power))
+        (data-fns (seq-filter 'identity
+                              (mapcar (lambda (s) (alist-get 'data-fn s)) successors))))
+    (when data-fns
+      (lambda ()
+        (let ((p1 0.0) (p2 0.0) (p3 0.0))
+          (dolist (fn data-fns)
+            (when-let ((pp (alist-get alist-key (funcall fn 0))))
+              (setq p1 (+ p1 (car pp)))
+              (setq p2 (+ p2 (cadr pp)))
+              (setq p3 (+ p3 (caddr pp)))))
+          (list p1 p2 p3))))))
 
 
-(defun make-per-phase-reactive-power-expr (successors)
-  (make-per-phase-power-expr successors 'per-phase-reactive-power))
+(defun make-per-phase-reactive-fn (successors)
+  (make-per-phase-fn successors 'per-phase-reactive-power))
 
 
-(defun make-current-expr (successors)
-  (let ((p1-expr ())
-        (p2-expr ())
-        (p3-expr ()))
-    (dolist (successor successors)
-      (if-let ((current (alist-get 'current successor)))
-          (progn
-            (setq p1-expr (cons `(car ,current) p1-expr))
-            (setq p2-expr (cons `(cadr ,current) p2-expr))
-            (setq p3-expr (cons `(caddr ,current) p3-expr)))))
-    (when p1-expr (list 'list
-                        (setq p1-expr (cons '+ p1-expr))
-                        (setq p2-expr (cons '+ p2-expr))
-                        (setq p3-expr (cons '+ p3-expr))))))
+(defun make-current-fn (successors)
+  (make-per-phase-fn successors 'current))
 
 (defun make-battery-bounds-check-fn (successors)
-  (let ((all-bounds (mapcar
-                     (lambda (successor) (alist-get 'bounds successor))
-                     successors)))
+  (let ((all-bounds (seq-filter 'identity
+                                (mapcar (lambda (s) (alist-get 'bounds-symbol s))
+                                        successors))))
     (lambda (power)
-      (bounds/contains-in-sum power
-                              (mapcar 'symbol-value all-bounds)))))
+      (bounds/contains-in-sum power (symbol-values all-bounds)))))
 
 
 (defun set-power-active (id power)

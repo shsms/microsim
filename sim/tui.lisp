@@ -201,15 +201,6 @@
         (setq comps    (cdr comps))))
     (reverse items)))
 
-(defun tui/-resolve (expr)
-  "Return EXPR's display value: bare unbound symbols stay literal (they are
-enum-ish values like `pv' or `ready'); everything else is evaluated."
-  (cond
-   ((null expr) nil)
-   ((not (symbolp expr)) (eval expr))
-   ((boundp expr) (eval expr))
-   (t expr)))
-
 (defun tui/-detail-value-style (kind)
   (cond
    ((eq kind 'text)  tui/-detail-text-style)
@@ -217,37 +208,42 @@ enum-ish values like `pv' or `ready'); everything else is evaluated."
    ((eq kind 'state) tui/-detail-state-style)
    (t                tui/-detail-num-style)))
 
-(defun tui/-detail-line (label kind expr)
-  (let ((val (tui/-resolve expr)))
-    (when val
-      (list (cons (format "%-10s " label) tui/-detail-label-style)
-            (cons (format "%s" val) (tui/-detail-value-style kind))))))
+(defun tui/-detail-line (label kind val)
+  (when val
+    (list (cons (format "%-10s " label) tui/-detail-label-style)
+          (cons (format "%s" val) (tui/-detail-value-style kind)))))
 
-;; SPEC is a list of (LABEL KIND FIELD) triples; returns a list of styled
-;; detail lines with nil (missing-value) rows dropped.
+;; Each spec is (LABEL KIND FIELD SOURCE). SOURCE is either `static` —
+;; look the field up in the component's top-level alist — or `dynamic` —
+;; look it up in the materialized alist returned by the component's
+;; `data-fn`. Rows with nil values are dropped.
 (defun tui/-comp-details (comp)
   (if (null comp)
       (list (list (cons "(no component selected)" tui/-detail-empty-style)))
-    (let ((specs '((id       num   id)
-                   (name     text  name)
-                   (category enum  category)
-                   (type     enum  type)
-                   (state    state component-state)
-                   (relay    state relay-state)
-                   (cable    state cable-state)
-                   (soc      num   soc)
-                   (capacity num   capacity)
-                   (voltage  num   voltage)
-                   (current  num   current)
-                   (power    num   power)
-                   (reactive num   reactive-power)
-                   (bounds   num   bounds)))
-          (lines nil))
+    (let* ((data-fn (alist-get 'data-fn comp))
+           (data (when data-fn (funcall data-fn 0)))
+           (specs '((id       num   id              static)
+                    (name     text  name            static)
+                    (category enum  category        static)
+                    (type     enum  type            static)
+                    (state    state component-state dynamic)
+                    (relay    state relay-state     dynamic)
+                    (cable    state cable-state     dynamic)
+                    (soc      num   soc             dynamic)
+                    (capacity num   capacity        dynamic)
+                    (voltage  num   voltage         dynamic)
+                    (current  num   current         dynamic)
+                    (power    num   power           dynamic)
+                    (reactive num   reactive-power  dynamic)
+                    (bounds   num   bounds          dynamic)))
+           (lines nil))
       (dolist (spec specs)
-        (let* ((label (car   spec))
-               (kind  (car (cdr spec)))
-               (field (car (cdr (cdr spec))))
-               (line  (tui/-detail-line label kind (alist-get field comp))))
+        (let* ((label  (car    spec))
+               (kind   (cadr   spec))
+               (field  (caddr  spec))
+               (source (cadddr spec))
+               (alist  (if (eq source 'static) comp data))
+               (line   (tui/-detail-line label kind (alist-get field alist))))
           (when line
             (setq lines (cons line lines)))))
       (reverse lines))))

@@ -755,14 +755,14 @@ impl Config {
             ctx,
             &alist,
             &symbols.component_state,
-            true,
+            false,
         )
         .unwrap_or_default() as i32;
         let relay_state = enum_from_alist::<ElectricalComponentStateCode>(
             ctx,
             &alist,
             &symbols.relay_state,
-            true,
+            false,
         )
         .unwrap_or_default() as i32;
 
@@ -1068,7 +1068,7 @@ impl Config {
             ctx,
             &alist,
             &symbols.component_state,
-            true,
+            false,
         )
         .unwrap_or_default() as i32;
 
@@ -1108,7 +1108,7 @@ impl Config {
                             ctx,
                             &alist,
                             &symbols.component_state,
-                            true,
+                            false,
                         )
                         .unwrap_or_default() as i32,
                     ],
@@ -1130,7 +1130,7 @@ impl Config {
             ctx,
             &alist,
             &symbols.component_state,
-            true,
+            false,
         )
         .unwrap_or_default() as i32;
 
@@ -1138,7 +1138,7 @@ impl Config {
             ctx,
             &alist,
             &symbols.cable_state,
-            true,
+            false,
         )
         .unwrap_or_default() as i32;
 
