@@ -131,19 +131,20 @@
                         (setq p2-expr (cons '+ p2-expr))
                         (setq p3-expr (cons '+ p3-expr))))))
 
-(defun make-battery-bounds-check-expr (successors)
+(defun make-battery-bounds-check-fn (successors)
   (let ((all-bounds (mapcar
                      (lambda (successor) (alist-get 'bounds successor))
                      successors)))
-    (eval `(lambda (power)
-             (bounds/contains-in-sum power ,@all-bounds)))))
+    (lambda (power)
+      (bounds/contains-in-sum power
+                              (mapcar 'symbol-value all-bounds)))))
 
 
 (defun set-power-active (id power)
   (let* (;; TODO: drop unused? power-symbol
          (power-symbol (power-symbol-from-id id))
-         (bounds-check-func (eval (bounds-check-func-symbol-from-id id)))
-         (set-power-func (eval (set-power-func-symbol-from-id id)))
+         (bounds-check-func (symbol-value (bounds-check-func-symbol-from-id id)))
+         (set-power-func (symbol-value (set-power-func-symbol-from-id id)))
          (power (ftruncate power)))
 
     (if (funcall bounds-check-func power)
@@ -157,8 +158,8 @@
 
 
 (defun set-power-reactive (id reactive-power)
-  (let* ((reactive-bounds-check-func (eval (reactive-bounds-check-func-symbol-from-id id)))
-         (set-reactive-power-func (eval (set-reactive-power-func-symbol-from-id id)))
+  (let* ((reactive-bounds-check-func (symbol-value (reactive-bounds-check-func-symbol-from-id id)))
+         (set-reactive-power-func (symbol-value (set-reactive-power-func-symbol-from-id id)))
          (reactive-power (ftruncate reactive-power)))
 
     (if (funcall reactive-bounds-check-func reactive-power)
@@ -172,7 +173,7 @@
 
 
 (defun reset-power-active (id)
-  (let* ((reset-power-func (eval (reset-power-func-symbol-from-id id))))
+  (let* ((reset-power-func (symbol-value (reset-power-func-symbol-from-id id))))
     (if reset-power-func
         (funcall reset-power-func)
       (log.warn "No reset power function found for component id %d" id))))
@@ -181,20 +182,16 @@
 (defun augment-active-power-bounds (id create-ts bounds lifetime-secs)
   (let* ((active-power-bounds-symbol (active-power-bounds-symbol-from-id id)))
     (set active-power-bounds-symbol
-         (bounds/add (eval active-power-bounds-symbol) create-ts bounds lifetime-secs))))
+         (bounds/add (symbol-value active-power-bounds-symbol) create-ts bounds lifetime-secs))))
 
 (defun component-data-maker (data-alist defaults-alist keys)
-  (let ((data-alist (eval data-alist))
-        (defaults-alist (eval defaults-alist))
-        (args-alist))
-
+  (let ((args-alist))
     (dolist (key keys)
       (if-let ((val (alist-get key data-alist)))
           (setq args-alist (cons (cons key val) args-alist))
         (if-let ((val (alist-get key defaults-alist)))
             (setq args-alist (cons (cons key `(quote ,val)) args-alist)))))
-
-    (eval (list 'lambda '(_) `(quote ,args-alist)))))
+    (lambda (_) args-alist)))
 
 
 (defun ac-current-from-power (power)

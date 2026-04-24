@@ -75,11 +75,13 @@ pub(crate) fn add(ctx: &mut tulisp::TulispContext) {
 
     ctx.defun(
         "bounds/contains-in-sum",
-        |value: f64, bounds_list: tulisp::Rest<TulispComponentBounds>| -> bool {
-            let total_bounds = bounds_list
-                .into_iter()
-                .fold(VecBounds(vec![]), |acc, b| acc.add(&b.squash()));
-            total_bounds.contains(value as f32)
+        |value: f64, bounds_list: tulisp::TulispObject| -> Result<bool, tulisp::Error> {
+            let mut total_bounds = VecBounds(vec![]);
+            for item in bounds_list.base_iter() {
+                let b: TulispComponentBounds = item.try_into()?;
+                total_bounds = total_bounds.add(&b.squash());
+            }
+            Ok(total_bounds.contains(value as f32))
         },
     );
 

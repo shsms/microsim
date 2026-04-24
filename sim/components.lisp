@@ -1,24 +1,8 @@
-;; These let*-bound locals in make-battery / make-*-inverter / make-meter /
-;; make-ev-charger are unquoted inside a backquote that's embedded in a
-;; `'(macroexpand ...)` form. `component-data-maker` later evaluates that
-;; form in its own scope, so the unquotes must resolve dynamically across
-;; the call stack. Under `lexical-binding: t`, declaring them with `defvar`
-;; (no initial value) marks them as special so let* binds them dynamically.
-(defvar id)
-(defvar config-alist)
-(defvar power-expr)
-(defvar current-expr)
-(defvar reactive-power-expr)
-(defvar bounds-expr)
-(defvar soc-symbol)
-(defvar active-power-bounds-symbol)
-(defvar dc-power-bounds-symbol)
-
 ;;;;;;;;;;;;;;;
 ;; Batteries ;;
 ;;;;;;;;;;;;;;;
 
-(defmacro battery-data-maker (data-alist defaults-alist)
+(defun battery-data-maker (data-alist defaults-alist)
   (component-data-maker data-alist
                         defaults-alist
                         '(id soc soc-upper soc-lower
@@ -75,12 +59,12 @@
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
-                                (macroexpand '(battery-data-maker
-                                        `((id    . ,id)
-                                          (soc . ,soc-symbol)
-                                          (bounds . ,dc-power-bounds-symbol)
-                                          ,@power-expr)
-                                        config-alist))))))))
+                                (battery-data-maker
+                                 `((id    . ,id)
+                                   (soc . ,soc-symbol)
+                                   (bounds . ,dc-power-bounds-symbol)
+                                   ,@power-expr)
+                                 config-alist)))))))
 
     (set dc-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
 
@@ -89,7 +73,7 @@
     (when (not (boundp power-symbol))
       (set power-symbol 0.0)
       (set energy-symbol 0.0)
-      (set soc-symbol (eval initial-soc)))
+      (set soc-symbol initial-soc))
 
     (every
      :milliseconds interval
@@ -147,7 +131,7 @@
 ;; Inverters ;;
 ;;;;;;;;;;;;;;;
 
-(defmacro inverter-data-maker (data-alist defaults-alist)
+(defun inverter-data-maker (data-alist defaults-alist)
   (component-data-maker data-alist
                         defaults-alist
                         '(id power current voltage component-state reactive-power
@@ -206,11 +190,11 @@
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
-                                (macroexpand '(inverter-data-maker
-                                        `((id . ,id)
-                                          (bounds . ,active-power-bounds-symbol)
-                                          ,@power-expr)
-                                        config-alist))))))))
+                                (inverter-data-maker
+                                 `((id . ,id)
+                                   (bounds . ,active-power-bounds-symbol)
+                                   ,@power-expr)
+                                 config-alist)))))))
 
     (log.trace (format "Adding battery inverter %s. Healthy: %s" id is-healthy))
 
@@ -353,18 +337,18 @@
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
-                                (macroexpand '(inverter-data-maker
-                                        `((id . ,id)
-                                          (bounds . ,active-power-bounds-symbol)
-                                          ,@power-expr)
-                                        config-alist))))))))
+                                (inverter-data-maker
+                                 `((id . ,id)
+                                   (bounds . ,active-power-bounds-symbol)
+                                   ,@power-expr)
+                                 config-alist)))))))
 
     (log.trace (format "Adding solar inverter %s. Healthy: %s" id is-healthy))
 
     (when (not (boundp min-power-symbol))
       (set min-power-symbol rated-lower))
 
-    (set power-symbol (max (eval min-power-symbol) (* rated-lower (/ sunlight% 100.0))))
+    (set power-symbol (max (symbol-value min-power-symbol) (* rated-lower (/ sunlight% 100.0))))
     (set reactive-power-symbol 0.0)
 
     (set bounds-check-func-symbol
@@ -445,7 +429,7 @@
 ;; Meters ;;
 ;;;;;;;;;;;;
 
-(defmacro meter-data-maker (data-alist defaults-alist)
+(defun meter-data-maker (data-alist defaults-alist)
   (component-data-maker data-alist
                         defaults-alist
                         '(id power per-phase-power reactive-power
@@ -515,12 +499,12 @@
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
-                                (macroexpand '(meter-data-maker
-                                               `((id    . ,id)
-                                                 ,@current-expr
-                                                 ,@power-expr
-                                                 ,@reactive-power-expr)
-                                               config-alist))))))))
+                                (meter-data-maker
+                                 `((id    . ,id)
+                                   ,@current-expr
+                                   ,@power-expr
+                                   ,@reactive-power-expr)
+                                 config-alist)))))))
 
     (log.trace (format "Adding meter %s" id))
 
@@ -534,7 +518,7 @@
 ;; EV Chargers ;;
 ;;;;;;;;;;;;;;;;;
 
-(defmacro ev-charger-data-maker (data-alist defaults-alist)
+(defun ev-charger-data-maker (data-alist defaults-alist)
   (component-data-maker data-alist
                         defaults-alist
                         '(id power current voltage component-state
@@ -603,18 +587,18 @@
             (stream   . ,(list
                           `(interval . ,interval)
                           (cons 'data
-                                (macroexpand '(ev-charger-data-maker
-                                               `((id . ,id)
-                                                 ,@bounds-expr
-                                                 ,@power-expr)
-                                               config-alist))))))))
+                                (ev-charger-data-maker
+                                 `((id . ,id)
+                                   ,@bounds-expr
+                                   ,@power-expr)
+                                 config-alist)))))))
 
     (log.trace (format "Adding ev-charger %s. Healthy: %s" id is-healthy))
 
     (when (not (boundp power-symbol))
       (set power-symbol 0.0)
       (set energy-symbol 0.0)
-      (set soc-symbol (eval initial-soc)))
+      (set soc-symbol initial-soc))
 
     (eval incl-upper-expr)
     (add-to-components-alist ev-charger)
