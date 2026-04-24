@@ -1,3 +1,19 @@
+;; These let*-bound locals in make-battery / make-*-inverter / make-meter /
+;; make-ev-charger are unquoted inside a backquote that's embedded in a
+;; `'(macroexpand ...)` form. `component-data-maker` later evaluates that
+;; form in its own scope, so the unquotes must resolve dynamically across
+;; the call stack. Under `lexical-binding: t`, declaring them with `defvar`
+;; (no initial value) marks them as special so let* binds them dynamically.
+(defvar id)
+(defvar config-alist)
+(defvar power-expr)
+(defvar current-expr)
+(defvar reactive-power-expr)
+(defvar bounds-expr)
+(defvar soc-symbol)
+(defvar active-power-bounds-symbol)
+(defvar dc-power-bounds-symbol)
+
 ;;;;;;;;;;;;;;;
 ;; Batteries ;;
 ;;;;;;;;;;;;;;;
@@ -80,45 +96,48 @@
      :call (eval
             `(lambda ()
                (setq ,dc-power-bounds-symbol
-                     (bounds/add-raw
-                      ;; current bounds with expired bounds removed
-                      (bounds/drop-expired ,dc-power-bounds-symbol)
-                      ;; create time
-                      (dt:now)
-                      ;; lower bound
-                      (if (< (- ,soc-symbol ,soc-lower) 10.0)
-                          (* ,rated-lower
-                             (bounded-exp-decay ,(+ soc-lower 10.0)
-                                                ,soc-lower
-                                                ,soc-symbol
-                                                1.2
-                                                0.3))
-                          ,rated-lower)
-                      ;; upper bound
-                      (if (< (- ,soc-upper ,soc-symbol) 10.0)
-                          (* ,rated-upper
-                             (bounded-exp-decay ,(- soc-upper 10.0)
-                                                ,soc-upper
-                                                ,soc-symbol
-                                                1.2
-                                                0.3))
-                          ,rated-upper)
-                      ;; lifetime
-                      (ceiling (min 1 (* 3 (/ interval 1000.0))))))
+                      (bounds/add-raw
+                       ;; current bounds with expired bounds removed
+                       (bounds/drop-expired ,dc-power-bounds-symbol)
+                       ;; create time
+                       (dt:now)
+                       ;; lower bound
+                       (if (< (- ,soc-symbol ,soc-lower) 10.0)
+                           (* ,rated-lower
+                              (bounded-exp-decay ,(+ soc-lower 10.0)
+                                                 ,soc-lower
+                                                 ,soc-symbol
+                                                 1.2
+                                                 0.3))
+                           ,rated-lower)
+                       ;; upper bound
+                       (if (< (- ,soc-upper ,soc-symbol) 10.0)
+                           (* ,rated-upper
+                              (bounded-exp-decay ,(- soc-upper 10.0)
+                                                 ,soc-upper
+                                                 ,soc-symbol
+                                                 1.2
+                                                 0.3))
+                           ,rated-upper)
+                       ;; lifetime
+                       ,(ceiling (min 1 (* 3 (/ interval 1000.0))))))
 
-               ;; ensure power is within bounds after soc update
-               (setq ,power-symbol
-                     (bounds/limit-power ,dc-power-bounds-symbol ,power-symbol)))))
+                ;; ensure power is within bounds after soc update
+                (setq ,power-symbol
+                      (bounds/limit-power ,dc-power-bounds-symbol ,power-symbol)))))
 
-    (setq state-update-functions
-          (cons (eval (list 'lambda '(ms-since-last-call)
-                            `(setq ,energy-symbol
-                                   (+ ,energy-symbol ;; ->> ?
-                                      (* ,power-symbol
-                                         (/ ms-since-last-call
-                                            ,(* 60.0 60.0 1000.0)))))
-                            soc-expr))
-                state-update-functions))
+    (setq active-timers
+          (cons (run-with-timer
+                 (/ state-update-interval-ms 1000.0)
+                 (/ state-update-interval-ms 1000.0)
+                 (eval (list 'lambda '()
+                             `(setq ,energy-symbol
+                                    (+ ,energy-symbol
+                                       (* ,power-symbol
+                                          (/ state-update-interval-ms
+                                             ,(* 60.0 60.0 1000.0)))))
+                             soc-expr)))
+                active-timers))
 
     (add-to-components-alist battery)
 
@@ -268,16 +287,16 @@
     (when is-healthy
       (every
        :milliseconds 1000
-       :call `(lambda ()
-                (let ((measured-power ,(alist-get 'power power-expr))
-                      (active-power-bounds ,active-power-bounds-symbol))
-                  (set active-power-bounds-symbol
-                       (bounds/drop-expired active-power-bounds))
-                  (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
-                    (unless (equal limited-power measured-power)
-                      (log.debug (format "Limited power for inverter %s: %s W"
-                                         ,id limited-power))
-                      (,set-power-func-symbol limited-power)))))))
+       :call (eval `(lambda ()
+                      (let ((measured-power ,(alist-get 'power power-expr))
+                            (active-power-bounds ,active-power-bounds-symbol))
+                        (set ',active-power-bounds-symbol
+                             (bounds/drop-expired active-power-bounds))
+                        (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
+                          (unless (equal limited-power measured-power)
+                            (log.debug (format "Limited power for inverter %s: %s W"
+                                               ,id limited-power))
+                            (,set-power-func-symbol limited-power))))))))
 
     (add-to-components-alist inverter)
     (connect-successors id successors)
@@ -407,16 +426,16 @@
     (when is-healthy
       (every
        :milliseconds 1000
-       :call `(lambda ()
-                (let ((measured-power ,(alist-get 'power power-expr))
-                      (active-power-bounds ,active-power-bounds-symbol))
-                  (set active-power-bounds-symbol
-                       (bounds/drop-expired active-power-bounds))
-                  (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
-                    (unless (equal limited-power measured-power)
-                      (log.debug (format "Limited power for inverter %s: %s W"
-                                         ,id limited-power))
-                      (,set-power-func-symbol limited-power)))))))
+       :call (eval `(lambda ()
+                      (let ((measured-power ,(alist-get 'power power-expr))
+                            (active-power-bounds ,active-power-bounds-symbol))
+                        (set ',active-power-bounds-symbol
+                             (bounds/drop-expired active-power-bounds))
+                        (let ((limited-power (bounds/limit-power active-power-bounds measured-power)))
+                          (unless (equal limited-power measured-power)
+                            (log.debug (format "Limited power for inverter %s: %s W"
+                                               ,id limited-power))
+                            (,set-power-func-symbol limited-power))))))))
 
     (add-to-components-alist inverter)
     inverter))
@@ -600,20 +619,23 @@
     (eval incl-upper-expr)
     (add-to-components-alist ev-charger)
 
-    (setq state-update-functions
-          (cons (list 'lambda '(ms-since-last-call)
-                      `(eval (setq ,energy-symbol
-                                   (+ ,energy-symbol ;; ->> ?
-                                      (* ,power-symbol
-                                         (/ ms-since-last-call
-                                            ,(* 60.0 60.0 1000.0))))))
-                      `(eval ,soc-expr)
-                      `(eval ,incl-upper-expr)
-                      `(cond ((< ,power-symbol 0.0)
-                              (setq ,power-symbol 0.0))
-                             ((> ,power-symbol ,incl-upper-symbol)
-                              (setq ,power-symbol ,incl-upper-symbol))))
-                state-update-functions))
+    (setq active-timers
+          (cons (run-with-timer
+                 (/ state-update-interval-ms 1000.0)
+                 (/ state-update-interval-ms 1000.0)
+                 (eval `(lambda ()
+                          (setq ,energy-symbol
+                                (+ ,energy-symbol
+                                   (* ,power-symbol
+                                      (/ state-update-interval-ms
+                                         ,(* 60.0 60.0 1000.0)))))
+                          ,soc-expr
+                          ,incl-upper-expr
+                          (cond ((< ,power-symbol 0.0)
+                                 (setq ,power-symbol 0.0))
+                                ((> ,power-symbol ,incl-upper-symbol)
+                                 (setq ,power-symbol ,incl-upper-symbol))))))
+                active-timers))
 
     (set bounds-check-func-symbol
          (if is-healthy
@@ -643,7 +665,7 @@
                                       power
                                       ,(power-symbol-from-id id)))
                     (setq ,(power-symbol-from-id id) power)))
-           '(lambda (power)
+           (lambda (power)
              (log.error "Can't set power: ev-charger is unhealthy")
              nil)))
 

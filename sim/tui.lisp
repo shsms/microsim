@@ -347,6 +347,9 @@ enum-ish values like `pv' or `ready'); everything else is evaluated."
 (defun tui/frame ()
   (tui/-init-once)
   (tui/draw tui/term (tui/-render))
-  (let ((ev (tui/poll-event 250)))
+  ;; Non-blocking poll — the Rust driver sleeps between frames, so
+  ;; holding the ctx write-lock inside a blocking poll would starve
+  ;; grpc writers (e.g. set-power-active) that also need the ctx.
+  (let ((ev (tui/poll-event 0)))
     (when ev (tui/-handle ev)))
   (not tui/running))

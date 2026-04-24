@@ -5,7 +5,12 @@
   (setq comp--id--counter 1000)
   (setq connections-alist nil)
   (setq components-alist nil)
-  (setq state-update-functions nil)
+  ;; Stop any timers from the previous load so they don't keep mutating
+  ;; now-orphaned state symbols.
+  (when (boundp 'active-timers)
+    (dolist (tm active-timers)
+      (cancel-timer tm)))
+  (setq active-timers nil)
   (setq metadata nil))
 
 (defun get-comp-id ()
@@ -236,7 +241,7 @@
 (defun calc-per-phase-power (power)
   (if (numberp power)
       (let ((total-voltage (seq-reduce '+ voltage-per-phase 0.0)))
-        (mapcar '(lambda (voltage) (* power (/ voltage total-voltage))) voltage-per-phase))
+        (mapcar (lambda (voltage) (* power (/ voltage total-voltage))) voltage-per-phase))
     '(0.0 0.0 0.0)))
 
 
@@ -291,25 +296,14 @@
       (t (+ shift (* (- 1.0 shift)
                      (expt base (- start val))))))))
 
-(defun repeat-every-impl (counter every-ms action ms-since-last-call)
-  (let ((count (+ (eval counter) ms-since-last-call)))
-    (set counter count)
-    (when (> count every-ms)
-      (funcall action)
-      (set counter 0))))
-
+;; Call `:call` once now, then every `:milliseconds` ms. Handle is
+;; pushed onto `active-timers` so `reset-state` can cancel it on config
+;; reload.
 (defun every (&rest plist)
   (let* ((milliseconds (plist-get plist :milliseconds))
-         (action (plist-get plist :call))
-         (timer (gensym "timer-")))
-    (funcall action)     ;; call once at the start
-    (set timer 0)
-    (setq state-update-functions
-          (cons (eval (list 'lambda '(ms-since-last-call)
-                            `(repeat-every-impl
-                              (quote ,timer)
-                              ,milliseconds
-                              ,action
-                              ms-since-last-call)))
-                state-update-functions))
-    ))
+         (func (plist-get plist :call))
+         (secs (/ milliseconds 1000.0)))
+    (funcall func)
+    (setq active-timers
+          (cons (run-with-timer secs secs func) active-timers))))
+

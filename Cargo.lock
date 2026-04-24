@@ -830,6 +830,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tulisp",
+ "tulisp-async",
  "tulisp-ratatui",
 ]
 
@@ -1664,12 +1665,18 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "tulisp"
 version = "0.28.0"
-source = "git+https://github.com/shsms/tulisp#31498022f5855003f5868e69a7290d644d13b8ad"
+
+[[package]]
+name = "tulisp-async"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tulisp",
+]
 
 [[package]]
 name = "tulisp-ratatui"
 version = "0.1.0"
-source = "git+https://github.com/tulisp/tulisp-ratatui#d6885e92bf46d8fe88323e2fd25681165680921d"
 dependencies = [
  "crossterm",
  "ratatui",

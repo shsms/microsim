@@ -181,25 +181,28 @@ impl microgrid_server::Microgrid for MicrogridServer {
         tokio::spawn(async move {
             let mut last_msg_ts = SystemTime::now();
             loop {
-                let (data, interval) = config
-                    .get_component_data(component_id as u64)
-                    .map_err(|e| {
-                        log::error!("Tulisp error:\n{}", e.format(&config.ctx.borrow()));
-                        e
-                    })
-                    .unwrap();
+                let (data, interval) = match config.get_component_data(component_id as u64) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::error!(
+                            "stream({}): get_component_data failed: {}",
+                            component_id,
+                            e.format(&config.ctx.borrow())
+                        );
+                        break;
+                    }
+                };
 
                 if let Err(err) = tx.send(Result::<_, tonic::Status>::Ok(data)).await {
-                    log::debug!("stream_component_data(component_id={component_id}): {err}");
+                    log::debug!("stream({component_id}): tx closed: {err}");
                     break;
                 }
 
                 let now = SystemTime::now();
                 let tgt_ts = last_msg_ts + Duration::from_millis(interval as u64);
-                let dur =
-                    Duration::from_millis(tgt_ts.duration_since(now).unwrap().as_millis() as u64);
+                let dur = tgt_ts.duration_since(now).unwrap_or(Duration::ZERO);
                 tokio::time::sleep(dur).await;
-                last_msg_ts = tgt_ts;
+                last_msg_ts = tgt_ts.max(now);
             }
         });
 

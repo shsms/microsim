@@ -9,10 +9,11 @@ tonic-prost = "0.14"
 tonic = "0.14.0"
 prost = "0.14.0"
 prost-types = "0.14.0"
-tokio = { version = "1.43.1", features = ["rt", "macros"] }
+tokio = { version = "1.43.1", features = ["rt", "rt-multi-thread", "macros", "sync", "time"] }
 tokio-stream = "0.1.15"
-tulisp = { git = "https://github.com/shsms/tulisp", features = ["etags"] }
+tulisp = { git = "https://github.com/shsms/tulisp", features = ["etags", "sync"] }
 tulisp-ratatui = { git = "https://github.com/tulisp/tulisp-ratatui" }
+tulisp-async = { path = "../tulisp-async" }
 notify = "6.1.1"
 futures = "0.3.30"
 log = "0.4.22"
@@ -26,3 +27,13 @@ tonic-prost-build = { version = "0.14", features = ["cleanup-markdown"] }
 [lib]
 name = "microsim"
 path = "src/lib.rs"
+
+# Local iteration overrides — use path-based tulisp and tulisp-ratatui
+# so we can edit across all three crates without push/pull cycles. Drop
+# these once the upstream git branches carry the `SharedMut` re-export
+# and the tulisp-ratatui `Arc<RwLock<..>>` Terminal.
+[patch."https://github.com/shsms/tulisp"]
+tulisp = { path = "../tulisp" }
+
+[patch."https://github.com/tulisp/tulisp-ratatui"]
+tulisp-ratatui = { path = "../tulisp-ratatui" }

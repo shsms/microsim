@@ -90,7 +90,7 @@ async fn serve_grpc(server: microsim::server::MicrogridServer, addr: String) {
         .unwrap();
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() {
     let args = parse_args();
 

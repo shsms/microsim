@@ -4,14 +4,9 @@ mod time;
 use crate::lisp::bounds::TulispComponentBounds;
 use chrono::{DateTime, TimeDelta, Utc};
 use rand::Rng;
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    path::Path,
-    rc::Rc,
-    str::FromStr,
-    time::Duration,
-};
+use std::{collections::HashMap, path::Path, str::FromStr, sync::Arc, time::Duration};
+
+use tulisp::SharedMut;
 
 use crate::{
     lisp::bounds::VecBounds,
@@ -55,7 +50,6 @@ type CompDataMaker = fn(
 intern! {
     #[derive(Clone)]
     pub(crate) struct Symbols {
-        state_update_interval_ms: "state-update-interval-ms",
         reactive_power: "reactive-power",
         power: "power",
         name: "name",
@@ -97,7 +91,6 @@ intern! {
         connections_alist: "connections-alist",
         rated_fuse_current: "rated-fuse-current",
         reset_power_active: "reset-power-active",
-        state_update_functions: "state-update-functions",
         per_phase_reactive_power: "per-phase-reactive-power",
         augment_active_power_bounds: "augment-active-power-bounds",
         retain_requests_duration_ms: "retain-requests-duration-ms",
@@ -108,23 +101,15 @@ intern! {
 pub struct Config {
     filename: String,
 
-    pub(crate) ctx: Rc<RefCell<tulisp::TulispContext>>,
+    pub(crate) ctx: SharedMut<tulisp::TulispContext>,
 
     /// Component ID -> (Component's Data Method, Interval, To ComponentData Method)
-    stream_methods: Rc<RefCell<HashMap<u64, (TulispObject, u64, CompDataMaker)>>>,
+    stream_methods: SharedMut<HashMap<u64, (TulispObject, u64, CompDataMaker)>>,
 
-    /// Component ID -> last power update time.
-    last_formula_update_time: Rc<RefCell<std::time::Instant>>,
-
-    default_request_duration: Cell<Option<Duration>>,
+    default_request_duration: Arc<std::sync::OnceLock<Duration>>,
 
     symbols: Symbols,
 }
-
-// Tokio is configured to use the current_thread runtime, so it is not unsafe to
-// make `Config` Send and Sync.
-unsafe impl Send for Config {}
-unsafe impl Sync for Config {}
 
 macro_rules! alist_get_as {
     ($ctx: expr, $rest:expr, $key:expr, $as_fn:ident) => {{ alist_get_as!($ctx, $rest, $key).and_then(|x| x.$as_fn()) }};
@@ -291,18 +276,21 @@ impl Config {
 
         add_functions(&mut ctx);
 
+        tulisp_async::register(
+            &mut ctx,
+            Arc::new(tulisp_async::TokioExecutor::new()),
+        );
+
         let _ = ctx.eval_file(filename).map_err(|e| {
             log::error!("Tulisp error:\n{}", e.format(&ctx));
             e
         });
-        let now = std::time::Instant::now();
         let symbols = Symbols::new(&mut ctx);
         Self {
             filename: filename.to_string(),
-            ctx: Rc::new(RefCell::new(ctx)),
-            stream_methods: Rc::new(RefCell::new(HashMap::new())),
-            last_formula_update_time: Rc::new(RefCell::new(now)),
-            default_request_duration: Cell::new(None),
+            ctx: SharedMut::new(ctx),
+            stream_methods: SharedMut::new(HashMap::new()),
+            default_request_duration: Arc::new(std::sync::OnceLock::new()),
             symbols,
         }
     }
@@ -345,7 +333,6 @@ impl Config {
     }
 
     pub async fn start(self) {
-        self.start_state_updates();
         self.start_watching().await;
     }
 
@@ -384,50 +371,6 @@ impl Config {
         }
     }
 
-    fn start_state_updates(&self) {
-        let config = self.clone();
-        tokio::spawn(async move {
-            loop {
-                config.update_state();
-                let update_interval = config
-                    .symbols
-                    .state_update_interval_ms
-                    .get()
-                    .and_then(|x| x.as_int())
-                    .unwrap_or(2000) as u64;
-                tokio::time::sleep(Duration::from_millis(update_interval)).await;
-            }
-        });
-    }
-
-    fn update_state(&self) {
-        let exprs_alist = self
-            .symbols
-            .state_update_functions
-            .get()
-            .map_err(|e| {
-                log::error!("Tulisp error:\n{}", e.format(&self.ctx.borrow()));
-                panic!("Update state function failed");
-            })
-            .unwrap();
-        let last_update_time = self.last_formula_update_time.borrow();
-        let now = std::time::Instant::now();
-
-        for func in exprs_alist.base_iter() {
-            let res = self.ctx.borrow_mut().funcall(
-                &func,
-                &list![(now.duration_since(*last_update_time).as_millis() as i64).into()].unwrap(),
-            );
-            res.map_err(|e| {
-                log::error!("Tulisp error:\n{}", e.format(&self.ctx.borrow()));
-                panic!("Update state function failed");
-            })
-            .unwrap();
-        }
-        drop(last_update_time);
-        *self.last_formula_update_time.borrow_mut() = now;
-    }
-
     pub fn socket_addr(&self) -> String {
         let addr = self.symbols.socket_addr.get().and_then(|x| x.as_string());
 
@@ -456,6 +399,14 @@ Invalid socket-addr.  Add a config line in this format:
         let frame_fn = self.ctx.borrow_mut().intern("tui/frame");
         let args = TulispObject::nil();
 
+        // ~60 fps; also the window during which other ctx writers
+        // (grpc handlers like set-power-active) can acquire the lock.
+        // `yield_now` alone doesn't buy enough headroom here —
+        // `std::sync::RwLock` gives no writer-fairness guarantee, so a
+        // re-queued TUI task tends to re-acquire before another writer's
+        // waker runs, starving it.
+        let frame_period = Duration::from_millis(16);
+
         let result = loop {
             let res = self.ctx.borrow_mut().funcall(&frame_fn, &args);
             match res {
@@ -466,7 +417,7 @@ Invalid socket-addr.  Add a config line in this format:
                     break Err(e);
                 }
             }
-            tokio::task::yield_now().await;
+            tokio::time::sleep(frame_period).await;
         };
 
         tulisp_ratatui::restore();
@@ -474,19 +425,15 @@ Invalid socket-addr.  Add a config line in this format:
     }
 
     pub fn retain_requests_duration(&self) -> Duration {
-        if let Some(dur) = self.default_request_duration.get() {
-            return dur;
-        }
-        let dur_ms = self
-            .symbols
-            .retain_requests_duration_ms
-            .get()
-            .and_then(|x| x.as_int())
-            .unwrap_or(5000);
-
-        let dur = Duration::from_millis(dur_ms as u64);
-        self.default_request_duration.set(Some(dur));
-        dur
+        *self.default_request_duration.get_or_init(|| {
+            let dur_ms = self
+                .symbols
+                .retain_requests_duration_ms
+                .get()
+                .and_then(|x| x.as_int())
+                .unwrap_or(5000);
+            Duration::from_millis(dur_ms as u64)
+        })
     }
 
     pub fn metadata(&self) -> Result<GetMicrogridResponse, Error> {
