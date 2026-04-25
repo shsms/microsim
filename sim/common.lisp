@@ -184,7 +184,7 @@
   (let* ((reset-power-func (symbol-value (reset-power-func-symbol-from-id id))))
     (if reset-power-func
         (funcall reset-power-func)
-      (log.warn "No reset power function found for component id %d" id))))
+        (log.warn (format "No reset power function found for component id %d" id)))))
 
 
 (defun augment-active-power-bounds (id create-ts bounds lifetime-secs)

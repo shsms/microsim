@@ -393,13 +393,13 @@ Invalid socket-addr.  Add a config line in this format:
         let frame_fn = self.ctx.borrow_mut().intern("tui/frame");
         let args = TulispObject::nil();
 
-        // ~60 fps; also the window during which other ctx writers
+        // ~20 fps; also the window during which other ctx writers
         // (grpc handlers like set-power-active) can acquire the lock.
         // `yield_now` alone doesn't buy enough headroom here —
         // `std::sync::RwLock` gives no writer-fairness guarantee, so a
         // re-queued TUI task tends to re-acquire before another writer's
         // waker runs, starving it.
-        let frame_period = Duration::from_millis(16);
+        let frame_period = Duration::from_millis(50);
 
         let result = loop {
             let res = self.ctx.borrow_mut().funcall(&frame_fn, &args);
