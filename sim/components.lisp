@@ -512,6 +512,7 @@
 
          (power-symbol  (power-symbol-from-id id))
          (energy-symbol (energy-symbol-from-id id))
+         (active-power-bounds-symbol (active-power-bounds-symbol-from-id id))
 
          (capacity    (alist-get 'capacity    config-alist))
          (initial-soc (alist-get 'initial-soc config-alist))
@@ -555,18 +556,21 @@
             (let ((power (if is-healthy (symbol-value power-symbol) 0.0)))
               (list (cons 'id id)
                     (cons 'power power)
+                    (cons 'per-phase-power (calc-per-phase-power power))
+                    (cons 'reactive-power 0.0)
+                    (cons 'per-phase-reactive-power '(0.0 0.0 0.0))
                     (cons 'current (ac-current-from-power power))
                     (cons 'voltage voltage-per-phase)
                     (cons 'component-state (power->ev-component-state power))
                     (cons 'cable-state (alist-get 'cable-state config-alist))
-                    (cons 'inclusion-lower 0.0)
-                    (cons 'inclusion-upper rated-upper)))))
+                    (cons 'bounds (symbol-value active-power-bounds-symbol))))))
 
          (ev-charger
           `((category . ev-charger)
             (name     . ,(format "ev-charger-%s" id))
             (id       . ,id)
             (power-symbol . ,(when is-healthy power-symbol))
+            (bounds-symbol . ,active-power-bounds-symbol)
             (data-fn . ,data-fn)
             (stream . ((interval . ,interval) (data . ,data-fn))))))
 
@@ -580,12 +584,21 @@
     ;; initial incl-upper for the newly-initialized soc
     (funcall update-incl-upper)
     (add-to-components-alist ev-charger)
+    (set active-power-bounds-symbol (bounds/make-container rated-lower rated-upper))
 
     (setq active-timers
           (cons (run-with-timer
                  (/ state-update-interval-ms 1000.0)
                  (/ state-update-interval-ms 1000.0)
                  (lambda ()
+                   (let* ((active-power-bounds (symbol-value active-power-bounds-symbol))
+                          (measured-power (symbol-value power-symbol))
+                          (bounded-power (bounds/limit-power active-power-bounds measured-power)))
+                     (set active-power-bounds-symbol
+                          (bounds/drop-expired active-power-bounds))
+                     (unless (equal bounded-power measured-power)
+                       (log.debug (format "Limited power for ev-charger %s: %s W" id bounded-power))
+                       (set power-symbol bounded-power)))
                    (set energy-symbol
                         (+ (symbol-value energy-symbol)
                            (* (symbol-value power-symbol)
@@ -605,7 +618,8 @@
 
     (set bounds-check-func-symbol
          (if is-healthy
-             (lambda (power) (<= rated-lower power rated-upper))
+             (lambda (power)
+               (bounds/contains (symbol-value active-power-bounds-symbol) power))
              (progn (log.error "ev-charger is unhealthy")
                     (lambda (_power) nil))))
 
@@ -615,16 +629,19 @@
     (set set-power-func-symbol
          (if is-healthy
              (lambda (power)
-               (if (< power min-ev-power)
-                   (progn
-                     (log.info (format
-                                "Given power %s W is too low for ev-charger %s.  Not charging."
-                                power id))
-                     (set power-symbol 0.0))
-                   (progn
-                     (log.info (format "Setting power of ev-charger %s to %s W (was: %s W)"
-                                       id power (symbol-value power-symbol)))
-                     (set power-symbol power))))
+               (let* ((active-power-bounds (symbol-value active-power-bounds-symbol))
+                      (bounded-power (bounds/limit-power active-power-bounds power))
+                      (effective-power (min bounded-power (symbol-value incl-upper-symbol))))
+                 (if (< effective-power min-ev-power)
+                     (progn
+                       (log.info (format
+                                  "Given power %s W is too low for ev-charger %s.  Not charging."
+                                  effective-power id))
+                       (set power-symbol 0.0))
+                     (progn
+                       (log.info (format "Setting power of ev-charger %s to %s W (was: %s W)"
+                                         id effective-power (symbol-value power-symbol)))
+                       (set power-symbol effective-power)))))
              (lambda (_power)
                (log.error "Can't set power: ev-charger is unhealthy")
                nil)))
