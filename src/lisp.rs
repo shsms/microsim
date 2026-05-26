@@ -1112,7 +1112,7 @@ impl Config {
         Ok(ReceiveElectricalComponentTelemetryStreamResponse {
             telemetry: Some(ElectricalComponentTelemetry {
                 electrical_component_id: id,
-                metric_samples: vec![],
+                metric_samples: Self::ac_from_alist(ctx, now, alist, symbols)?,
                 state_snapshots: vec![ElectricalComponentStateSnapshot {
                     origin_time: now,
                     states: vec![component_state, cable_state],

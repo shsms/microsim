@@ -55,12 +55,18 @@ impl TulispComponentBounds {
     }
 
     pub fn squash(&self) -> VecBounds {
-        let mut bounds = self.rated_bounds.clone();
-
-        for (_, b, _) in self.augmented.iter() {
-            bounds = bounds.intersect(b);
+        if self.augmented.is_empty() {
+            return self.rated_bounds.clone();
         }
-        return bounds;
+        // Per microgrid.proto AugmentElectricalComponentBounds semantics,
+        // multiple augmented bound ranges are merged (union), not intersected.
+        // The rated bounds then act as a hard physical ceiling.
+        let mut all_aug: Vec<crate::proto::common::metrics::Bounds> = Vec::new();
+        for (_, b, _) in self.augmented.iter() {
+            all_aug.extend(b.0.iter().cloned());
+        }
+        let unioned = VecBounds::squash(all_aug);
+        self.rated_bounds.intersect(&unioned)
     }
 }
 
